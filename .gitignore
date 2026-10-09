@@ -1,0 +1,28 @@
+# File biên dịch / object files
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.lib
+*.dll
+*.so
+
+# Thư mục build
+/build/
+/bin/
+/out/
+
+# File tạm của compiler/debugger
+*.pdb
+*.ilk
+*.exp
+
+# File của IDE/editor khác (nếu ai dùng)
+.vscode/
+*.vcxproj.user
+.vs/
+
+# File hệ điều hành
+.DS_Store
+Thumbs.db
