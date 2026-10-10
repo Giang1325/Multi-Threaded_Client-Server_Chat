@@ -1,28 +1,34 @@
-# File biên dịch / object files
-*.o
-*.obj
-*.exe
-*.out
-*.a
-*.lib
-*.dll
-*.so
+# ===== File chạy được sinh ra khi biên dịch (Linux không có đuôi) =====
+server/server
+client/client
+tests/test_protocol
+tests/stress_client
 
-# Thư mục build
+# ===== File trung gian khi biên dịch =====
+*.o
+*.d
+*.a
+*.so
+*.out
+
+# ===== Thư mục build (nếu sau này dùng) =====
 /build/
 /bin/
-/out/
 
-# File tạm của compiler/debugger
-*.pdb
-*.ilk
-*.exp
+# ===== File sinh ra khi chương trình bị sập hoặc khi gỡ lỗi =====
+core
+core.*
+vgcore.*
 
-# File của IDE/editor khác (nếu ai dùng)
+# ===== File tạm của trình soạn thảo =====
 .vscode/
-*.vcxproj.user
-.vs/
+*.swp
+*~
 
-# File hệ điều hành
+# ===== File khóa tạm của Word/Excel và file sao lưu của draw.io =====
+~$*
+*.bkp
+
+# ===== File hệ điều hành =====
 .DS_Store
 Thumbs.db
