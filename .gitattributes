@@ -1,0 +1,16 @@
+# Chuan hoa ky tu xuong dong: luu trong repo bang LF de chay dung tren Linux/WSL
+* text=auto
+
+Makefile  text eol=lf
+*.c       text eol=lf
+*.h       text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+
+# File nhi phan: khong bao gio doi noi dung
+*.docx    binary
+*.xlsx    binary
+*.pptx    binary
+*.pdf     binary
+*.png     binary
+*.jpg     binary

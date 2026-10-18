@@ -32,3 +32,10 @@ vgcore.*
 # ===== File hệ điều hành =====
 .DS_Store
 Thumbs.db
+
+
+# ===== Kết quả đo hiệu năng thô (bảng, biểu đồ tổng hợp để trong docs/) =====
+tests/results/
+
+# ===== File rác Windows sinh ra khi chép file vào WSL =====
+*:Zone.Identifier
