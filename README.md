@@ -26,6 +26,17 @@ Một server xử lý tuần tự chỉ phục vụ được một client tại 
 - Thư viện: POSIX Threads (Pthreads), Socket API
 - Giao thức truyền: TCP
 
+## Giao thức (nhóm thống nhất — tuần 2)
+
+- **Gửi tên:** ngay sau khi kết nối, Client gửi `<tên>\n`; Server đọc đến khi gặp `\n`. Tên dài 2–31 ký tự, không chứa dấu cách.
+- **Trùng tên:** Server trả `*** Ten "<tên>" da co nguoi dung. Vui long chon ten khac.` rồi đóng kết nối.
+- **Tin nhắn thường:** `<tên>: <nội dung>\n` — **Server** gắn tên, không phải Client, để không ai mạo danh được người khác.
+- **Dấu hiệu phân biệt:** mọi tin do Server sinh ra đều mở đầu bằng `*** `, nên Client chỉ cần so 4 ký tự đầu (`strncmp(buf, "*** ", 4)`) là biết đó không phải tin của người dùng. Tin của người dùng nếu bắt đầu bằng `*** ` sẽ bị Server lọc bỏ.
+- **Vào/rời phòng:** `*** <tên> da vao phong` và `*** <tên> da roi phong`.
+- **`/list`:** trả về đúng một dòng — `*** Dang online (3): Giang, Quan, Nam`.
+
+Giao thức trên **khác** code của repo mẫu (mẫu gửi tên đúng 32 byte cố định, Client tự gắn tên, không có `/list` lẫn kiểm tra trùng tên). Phần cài đặt làm ở tuần 3.
+
 ## Phạm vi
 
 Đề tài tập trung vào phần lõi hệ thống (kết nối, đa luồng, đồng bộ hóa), giao tiếp qua giao diện dòng lệnh. Không bao gồm giao diện đồ họa, mã hóa tin nhắn hay lưu lịch sử trò chuyện.
