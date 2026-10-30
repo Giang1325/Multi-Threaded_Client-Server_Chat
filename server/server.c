@@ -88,9 +88,11 @@ void send_message(char *s, int uid){
 	for(int i=0; i<MAX_CLIENTS; ++i){
 		if(clients[i]){
 			if(clients[i]->uid != uid){
+				/* continue chu khong break: mot client loi khong duoc lam
+				   nhung nguoi xep sau trong mang mat tin */
 				if(write(clients[i]->sockfd, s, strlen(s)) < 0){
 					perror("ERROR: write to descriptor failed");
-					break;
+					continue;
 				}
 			}
 		}
@@ -221,9 +223,6 @@ int main(int argc, char **argv){
 		/* Add client to the queue and fork thread */
 		queue_add(cli);
 		pthread_create(&tid, NULL, &handle_client, (void*)cli);
-
-		/* Reduce CPU usage */
-		sleep(1);
 	}
 
 	return EXIT_SUCCESS;
