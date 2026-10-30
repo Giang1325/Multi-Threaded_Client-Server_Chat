@@ -45,16 +45,6 @@ void str_overwrite_stdout() {
     fflush(stdout);
 }
 
-void str_trim_lf (char* arr, int length) {
-  int i;
-  for (i = 0; i < length; i++) { // trim \n
-    if (arr[i] == '\n') {
-      arr[i] = '\0';
-      break;
-    }
-  }
-}
-
 /* Gui mot chuoi cho dung mot client. Khong lay khoa. */
 void send_to(int fd, const char *s){
 	if(write(fd, s, strlen(s)) < 0){
@@ -192,7 +182,8 @@ void send_message(char *s, int uid){
 
 /* Handle all communication with the client */
 void *handle_client(void *arg){
-	char buff_out[BUFFER_SZ];
+	char in[BUFFER_SZ];     /* dong vua nhan duoc tu client */
+	char out[OUT_SZ];       /* chuoi se phat di, lon hon in vi con ghep them ten */
 	int leave_flag = 0;
 	int n;
 
@@ -214,48 +205,48 @@ void *handle_client(void *arg){
 		int added = client_add_if_name_free(cli);
 
 		if(added == -1){
-			snprintf(buff_out, sizeof(buff_out),
+			snprintf(out, sizeof(out),
 				SYS_PREFIX "Ten \"%s\" da co nguoi dung. Vui long chon ten khac.\n",
 				cli->name);
-			send_to(cli->sockfd, buff_out);
+			send_to(cli->sockfd, out);
 			leave_flag = 1;
 		} else if(added < 0){
 			leave_flag = 1;     /* phong day: buoc sau se them cau bao */
 		} else {
-			snprintf(buff_out, sizeof(buff_out),
+			snprintf(out, sizeof(out),
 				SYS_PREFIX "%s da vao phong\n", cli->name);
-			printf("%s", buff_out);
-			send_message(buff_out, cli->uid);
+			printf("%s", out);
+			send_message(out, cli->uid);
 		}
 	}
-
-	bzero(buff_out, BUFFER_SZ);
 
 	while(1){
 		if (leave_flag) {
 			break;
 		}
 
-		int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
-		if (receive > 0){
-			if(strlen(buff_out) > 0){
-				send_message(buff_out, cli->uid);
+		n = recv_line(cli->sockfd, in, sizeof(in));
 
-				str_trim_lf(buff_out, strlen(buff_out));
-				printf("%s -> %s\n", buff_out, cli->name);
-			}
-		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
-			snprintf(buff_out, sizeof(buff_out),
+		if(n == LINE_CLOSED || n == LINE_ERR){
+			/* client dong binh thuong hoac dut dot ngot: ca hai xu ly nhu nhau */
+			snprintf(out, sizeof(out),
 				SYS_PREFIX "%s da roi phong\n", cli->name);
-			printf("%s", buff_out);
-			send_message(buff_out, cli->uid);
+			printf("%s", out);
+			send_message(out, cli->uid);
 			leave_flag = 1;
+		} else if(n == LINE_LONG){
+			send_to(cli->sockfd, SYS_PREFIX "Tin nhan qua dai, da bo qua.\n");
+		} else if(n == 0){
+			/* chi bam Enter, khong phat gi */
+		} else if(strncmp(in, SYS_PREFIX, strlen(SYS_PREFIX)) == 0){
+			/* Loc tin mao danh tin he thong (README: "se bi Server loc bo") */
+			printf("Da loc tin gia tin he thong tu %s: %s\n", cli->name, in);
 		} else {
-			printf("ERROR: -1\n");
-			leave_flag = 1;
+			/* SERVER gan ten, khong phai client, de khong ai mao danh nguoi khac */
+			snprintf(out, sizeof(out), "%s: %s\n", cli->name, in);
+			printf("%s", out);
+			send_message(out, cli->uid);
 		}
-
-		bzero(buff_out, BUFFER_SZ);
 	}
 
   /* Delete client from queue and yield thread */
