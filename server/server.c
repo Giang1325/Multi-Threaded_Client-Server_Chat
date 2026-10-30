@@ -222,7 +222,8 @@ void *handle_client(void *arg){
 		} else if(added < 0){
 			leave_flag = 1;     /* phong day: buoc sau se them cau bao */
 		} else {
-			sprintf(buff_out, "%s has joined\n", cli->name);
+			snprintf(buff_out, sizeof(buff_out),
+				SYS_PREFIX "%s da vao phong\n", cli->name);
 			printf("%s", buff_out);
 			send_message(buff_out, cli->uid);
 		}
@@ -244,7 +245,8 @@ void *handle_client(void *arg){
 				printf("%s -> %s\n", buff_out, cli->name);
 			}
 		} else if (receive == 0 || strcmp(buff_out, "exit") == 0){
-			sprintf(buff_out, "%s has left\n", cli->name);
+			snprintf(buff_out, sizeof(buff_out),
+				SYS_PREFIX "%s da roi phong\n", cli->name);
 			printf("%s", buff_out);
 			send_message(buff_out, cli->uid);
 			leave_flag = 1;
