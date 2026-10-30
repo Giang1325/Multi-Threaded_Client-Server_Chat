@@ -172,18 +172,24 @@ void send_message(char *s, int uid){
 /* Handle all communication with the client */
 void *handle_client(void *arg){
 	char buff_out[BUFFER_SZ];
-	char name[32];
 	int leave_flag = 0;
+	int n;
 
 	cli_count++;
 	client_t *cli = (client_t *)arg;
 
-	// Name
-	if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) <  2 || strlen(name) >= 32-1){
-		printf("Didn't enter the name.\n");
+	/* Doc ten theo dong, theo giao thuc trong README: Client gui "<ten>\n".
+	   Thay cho recv(...,32,...) cua code mau: nho doc den '\n' nen ten
+	   khong con dinh '\n' va khong con doc tran ra ngoai bo dem. */
+	n = recv_line(cli->sockfd, cli->name, sizeof(cli->name));
+
+	if(n == LINE_LONG || (n >= 0 && !name_is_valid(cli->name))){
+		send_to(cli->sockfd,
+			SYS_PREFIX "Ten khong hop le. Ten dai 2-31 ky tu, khong chua dau cach.\n");
 		leave_flag = 1;
-	} else{
-		strcpy(cli->name, name);
+	} else if(n < 0){
+		leave_flag = 1;         /* dut ket noi hoac loi truoc khi kip gui ten */
+	} else {
 		sprintf(buff_out, "%s has joined\n", cli->name);
 		printf("%s", buff_out);
 		send_message(buff_out, cli->uid);
@@ -287,6 +293,7 @@ int main(int argc, char **argv){
 		cli->address = cli_addr;
 		cli->sockfd = connfd;
 		cli->uid = uid++;
+		cli->name[0] = '\0';
 
 		/* Add client to the queue and fork thread */
 		queue_add(cli);
