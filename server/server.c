@@ -119,18 +119,39 @@ void print_client_addr(struct sockaddr_in addr){
         (addr.sin_addr.s_addr & 0xff000000) >> 24);
 }
 
-/* Add clients to queue */
-void queue_add(client_t *cl){
+/* Them client vao danh sach, chi khi ten chua ai dung.
+   LAY KHOA clients_mutex.
+   Thay cho queue_add cua code mau. Viec kiem tra ten trung va viec ghi vao
+   mang nam trong DUNG MOT lan giu khoa: neu tach thanh hai lan lock thi
+   hai nguoi cung ten vao dong thoi van cung lot qua duoc.
+   Tra ve:  0  them duoc
+           -1  da co nguoi dung ten nay
+           -2  phong da day */
+int client_add_if_name_free(client_t *cl){
+	int result;
+	int slot = -1;
+
 	pthread_mutex_lock(&clients_mutex);
 
+	result = -2;
 	for(int i=0; i < MAX_CLIENTS; ++i){
-		if(!clients[i]){
-			clients[i] = cl;
-			break;
+		if(clients[i]){
+			if(strcmp(clients[i]->name, cl->name) == 0){
+				result = -1;
+				break;
+			}
+		} else if(slot < 0){
+			slot = i;      /* ghi nho o trong dau tien, van duyet het de tim ten trung */
 		}
 	}
 
+	if(result != -1 && slot >= 0){
+		clients[slot] = cl;
+		result = 0;
+	}
+
 	pthread_mutex_unlock(&clients_mutex);
+	return result;
 }
 
 /* Remove clients to queue */
@@ -190,9 +211,21 @@ void *handle_client(void *arg){
 	} else if(n < 0){
 		leave_flag = 1;         /* dut ket noi hoac loi truoc khi kip gui ten */
 	} else {
-		sprintf(buff_out, "%s has joined\n", cli->name);
-		printf("%s", buff_out);
-		send_message(buff_out, cli->uid);
+		int added = client_add_if_name_free(cli);
+
+		if(added == -1){
+			snprintf(buff_out, sizeof(buff_out),
+				SYS_PREFIX "Ten \"%s\" da co nguoi dung. Vui long chon ten khac.\n",
+				cli->name);
+			send_to(cli->sockfd, buff_out);
+			leave_flag = 1;
+		} else if(added < 0){
+			leave_flag = 1;     /* phong day: buoc sau se them cau bao */
+		} else {
+			sprintf(buff_out, "%s has joined\n", cli->name);
+			printf("%s", buff_out);
+			send_message(buff_out, cli->uid);
+		}
 	}
 
 	bzero(buff_out, BUFFER_SZ);
@@ -295,8 +328,8 @@ int main(int argc, char **argv){
 		cli->uid = uid++;
 		cli->name[0] = '\0';
 
-		/* Add client to the queue and fork thread */
-		queue_add(cli);
+		/* Chua them vao danh sach o day: phai doc ten truoc da, roi
+		   handle_client moi goi client_add_if_name_free de chan trung ten. */
 		pthread_create(&tid, NULL, &handle_client, (void*)cli);
 	}
 
