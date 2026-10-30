@@ -101,14 +101,6 @@ int name_is_valid(const char *name){
 	return 1;
 }
 
-void print_client_addr(struct sockaddr_in addr){
-    printf("%d.%d.%d.%d",
-        addr.sin_addr.s_addr & 0xff,
-        (addr.sin_addr.s_addr & 0xff00) >> 8,
-        (addr.sin_addr.s_addr & 0xff0000) >> 16,
-        (addr.sin_addr.s_addr & 0xff000000) >> 24);
-}
-
 /* Them client vao danh sach, chi khi ten chua ai dung.
    LAY KHOA clients_mutex.
    Thay cho queue_add cua code mau. Viec kiem tra ten trung va viec ghi vao
@@ -255,7 +247,8 @@ void *handle_client(void *arg){
 			send_to(cli->sockfd, out);
 			leave_flag = 1;
 		} else if(added < 0){
-			leave_flag = 1;     /* phong day: buoc sau se them cau bao */
+			send_to(cli->sockfd, SYS_PREFIX "Phong da day, vui long thu lai sau.\n");
+			leave_flag = 1;
 		} else {
 			snprintf(out, sizeof(out),
 				SYS_PREFIX "%s da vao phong\n", cli->name);
@@ -352,14 +345,11 @@ int main(int argc, char **argv){
 		socklen_t clilen = sizeof(cli_addr);
 		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
 
-		/* Check if max clients is reached */
-		if((cli_count + 1) == MAX_CLIENTS){
-			printf("Max clients reached. Rejected: ");
-			print_client_addr(cli_addr);
-			printf(":%d\n", cli_addr.sin_port);
-			close(connfd);
-			continue;
-		}
+		/* Khong con chot chan o day: chot cu doc cli_count NGOAI khoa trong
+		   khi clients[] lai duoc clients_mutex bao ve, va dung == nen neu
+		   lo vuot qua mot lan la mat tac dung mai mai. Chot that nam trong
+		   client_add_if_name_free (dem o trong trong luc giu khoa), tra ve
+		   -2 khi day; handle_client se gui cau "Phong da day" cho client. */
 
 		/* Client settings */
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
