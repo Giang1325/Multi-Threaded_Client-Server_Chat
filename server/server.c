@@ -6,12 +6,24 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <ctype.h>
 #include <pthread.h>
 #include <sys/types.h>
 #include <signal.h>
 
 #define MAX_CLIENTS 100
 #define BUFFER_SZ 2048
+
+/* Giao thuc: xem muc "Giao thuc" trong README.md */
+#define SYS_PREFIX "*** "       /* moi tin do Server sinh ra deu mo dau bang day nay */
+#define NAME_MIN 2
+#define NAME_MAX 31             /* name[32] = 31 ky tu + '\0' */
+#define OUT_SZ 4096             /* du cho "ten: noi dung" va cho ca danh sach /list */
+
+/* Ma tra ve cua recv_line (so khong am = so ky tu doc duoc) */
+#define LINE_ERR    -1
+#define LINE_LONG   -2
+#define LINE_CLOSED -3
 
 static _Atomic unsigned int cli_count = 0;
 static int uid = 10;
@@ -41,6 +53,62 @@ void str_trim_lf (char* arr, int length) {
       break;
     }
   }
+}
+
+/* Gui mot chuoi cho dung mot client. Khong lay khoa. */
+void send_to(int fd, const char *s){
+	if(write(fd, s, strlen(s)) < 0){
+		perror("ERROR: write to descriptor failed");
+	}
+}
+
+/* Doc mot dong tu socket, doc den khi gap '\n'.
+   Ky tu '\n' KHONG duoc luu vao buf; buf luon ket thuc bang '\0'.
+   Khong lay khoa.
+   Tra ve: >= 0  so ky tu doc duoc (0 = dong rong, chi bam Enter)
+           LINE_ERR    loi recv
+           LINE_LONG   dong dai qua size-1 ky tu
+           LINE_CLOSED dau kia da dong ket noi */
+int recv_line(int fd, char *buf, size_t size){
+	size_t n = 0;
+
+	while(n + 1 < size){
+		char c;
+		ssize_t r = recv(fd, &c, 1, 0);
+
+		if(r == 0){
+			return LINE_CLOSED;
+		}
+		if(r < 0){
+			return LINE_ERR;
+		}
+		if(c == '\n'){
+			buf[n] = '\0';
+			return (int)n;
+		}
+		if(c != '\r'){          /* bo '\r' de client tren Windows cung chay */
+			buf[n++] = c;
+		}
+	}
+
+	buf[size - 1] = '\0';
+	return LINE_LONG;
+}
+
+/* Ten hop le: dai NAME_MIN..NAME_MAX ky tu, khong chua dau cach.
+   Khong lay khoa. Tra ve 1 neu hop le, 0 neu khong. */
+int name_is_valid(const char *name){
+	size_t len = strlen(name);
+
+	if(len < NAME_MIN || len > NAME_MAX){
+		return 0;
+	}
+	for(size_t i = 0; i < len; ++i){
+		if(isspace((unsigned char)name[i])){
+			return 0;
+		}
+	}
+	return 1;
 }
 
 void print_client_addr(struct sockaddr_in addr){
