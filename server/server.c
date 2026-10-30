@@ -160,6 +160,50 @@ void queue_remove(int uid){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
+/* Ghep danh sach nguoi dang online thanh DUNG MOT dong:
+       *** Dang online (3): Giang, Quan, Nam
+   LAY KHOA clients_mutex. Chi ghep chuoi vao buf, KHONG gui di; nho vay
+   luc write ra mang thi khoa da duoc nha, khong giu khoa khi vao/ra.
+   Thu tu la thu tu o trong mang, khong phai thu tu vao phong. */
+void list_online(char *buf, size_t size){
+	int n = 0;
+	int first = 1;
+	size_t len;
+
+	pthread_mutex_lock(&clients_mutex);
+
+	for(int i=0; i < MAX_CLIENTS; ++i){
+		if(clients[i]){
+			++n;
+		}
+	}
+
+	len = (size_t)snprintf(buf, size, "%sDang online (%d):", SYS_PREFIX, n);
+	if(len >= size){
+		len = size - 1;
+	}
+
+	for(int i=0; i < MAX_CLIENTS && len + 1 < size; ++i){
+		if(!clients[i]){
+			continue;
+		}
+		int w = snprintf(buf + len, size - len, "%s %s",
+		                 first ? "" : ",", clients[i]->name);
+		if(w < 0 || (size_t)w >= size - len){
+			break;      /* het cho trong buf, dung lai cho an toan */
+		}
+		len += (size_t)w;
+		first = 0;
+	}
+
+	pthread_mutex_unlock(&clients_mutex);
+
+	if(len + 1 < size){
+		buf[len++] = '\n';
+		buf[len] = '\0';
+	}
+}
+
 /* Send message to all clients except sender */
 void send_message(char *s, int uid){
 	pthread_mutex_lock(&clients_mutex);
@@ -238,6 +282,9 @@ void *handle_client(void *arg){
 			send_to(cli->sockfd, SYS_PREFIX "Tin nhan qua dai, da bo qua.\n");
 		} else if(n == 0){
 			/* chi bam Enter, khong phat gi */
+		} else if(strcmp(in, "/list") == 0){
+			list_online(out, sizeof(out));
+			send_to(cli->sockfd, out);      /* chi gui cho nguoi go lenh */
 		} else if(strncmp(in, SYS_PREFIX, strlen(SYS_PREFIX)) == 0){
 			/* Loc tin mao danh tin he thong (README: "se bi Server loc bo") */
 			printf("Da loc tin gia tin he thong tu %s: %s\n", cli->name, in);
