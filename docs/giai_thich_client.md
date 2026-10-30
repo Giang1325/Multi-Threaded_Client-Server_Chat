@@ -4,7 +4,7 @@ Người viết: Nguyễn Trường Giang – Tuần 2
 
 ## 1. Nguồn
 
-Code lấy nguyên bản từ repo [nikhilroxtomar/Chatroom-in-C](https://github.com/nikhilroxtomar/Chatroom-in-C) (file `client.c`), **chưa chỉnh sửa**. Các chỉnh sửa sẽ làm từ tuần 3.
+Tham khảo [nikhilroxtomar/Chatroom-in-C](https://github.com/nikhilroxtomar/Chatroom-in-C) (file `client.c`)
 
 ## 2. Cách build và chạy
 
@@ -85,6 +85,13 @@ Code không ghi rõ nhưng hai bên ngầm thống nhất:
 - Tin đầu tiên luôn là **tên, dài đúng 32 byte** (phần thừa là ký tự rỗng). Server cũng đọc đúng 32 byte.
 - Các tin sau có dạng `tên: nội dung\n`. Client tự gắn tên, server chỉ chuyển tiếp.
 
+Lý do gửi tên **đúng 32 byte** (không phải `strlen(name)`):
+
+1. **Ranh giới:** TCP là một dòng byte liền nhau, không có vạch ngăn giữa các lần gửi. Quy ước "32 byte đầu là tên" giúp server biết tên kết thúc ở đâu.
+2. **Ký tự `\0`:** server cất tên vào một mảng cục bộ (chứa rác) và `recv` không tự thêm `\0`. Gửi đủ 32 byte thì các ô thừa đều là `\0` (vì `name` của client là biến toàn cục, được khởi tạo bằng 0), nên server có chuỗi kết thúc đúng.
+
+Gửi `strlen(name) + 1` byte giải quyết được ý 2 nhưng không giải quyết được ý 1: nếu tin đầu tiên đến cùng lúc, `recv(32)` của server sẽ nuốt mất phần đầu tin đó.
+
 ## 5. Kết quả chạy thử
 
 Thử với `nc -l 4444` đóng vai server (chưa có server của nhóm):
@@ -92,11 +99,12 @@ Thử với `nc -l 4444` đóng vai server (chưa có server của nhóm):
 | Thao tác | Kết quả | Đạt? |
 |---|---|---|
 | Kết nối, nhập tên `Giang` | `nc` hiện `Giang` | Đạt |
-| Client gửi `xin chao` | `nc` hiện `Giang: xin chao` (dính liền sau tên, xem mục 6) | Đạt |
+| Client gửi `xin chao` | `nc` hiện `Giang: xin chao` (dính liền sau tên, xem lỗi 10) | Đạt |
 | `nc` gửi `hello` | Client hiện `hello` | Đạt |
 | Tắt `nc` bằng Ctrl+C | Client **bị treo**, không thoát | Lỗi |
 | Ctrl+C ở client | In `Bye` nhưng **không thoát** | Lỗi |
 | Gõ `exit` sau khi đã in `Bye` | Chương trình thoát | Đạt |
+| Kết thúc dữ liệu nhập (Ctrl+D) ngay sau tên | `nc` nhận khoảng **3 MB** dòng `Giang: ` trong 2 giây | Lỗi |
 
 *(Chèn ảnh chụp màn hình ở đây.)*
 
@@ -104,28 +112,54 @@ Thử với server thật: *(bổ sung sau khi có `server.c` của Quân.)*
 
 ## 6. Lỗi và hạn chế đã phát hiện
 
-1. **Server tắt thì client treo.** Khi `recv` trả về 0, luồng nhận thoát nhưng **không đặt `flag = 1`**, nên luồng chính vẫn chờ mãi và luồng gửi vẫn đứng ở `fgets`.
+### 6.1. Lỗi nghiêm trọng (sửa ở tuần 3)
 
-2. **Ctrl+C in `Bye` nhưng không thoát.** Luồng chính kết thúc chương trình, lúc này thư viện C cần lấy **khóa của `stdin`** để dọn dẹp. Nhưng luồng gửi đang đứng ở `fgets(stdin)` và **giữ khóa đó** trong lúc chờ bàn phím. Luồng chính chờ khóa, luồng gửi chờ người gõ, nên chương trình đứng im. Gõ `exit` thì luồng gửi thoát vòng lặp, nhả khóa, chương trình mới kết thúc. Đây là ví dụ về một luồng chờ tài nguyên mà luồng khác đang giữ (liên quan Chương 2: mutex, deadlock).
+1. **Server tắt thì client treo.** Khi `recv` trả về 0, luồng nhận thoát nhưng **không đặt `flag = 1`**, nên luồng chính vẫn chờ mãi và luồng gửi vẫn đứng ở `fgets`. Nếu sau đó người dùng gõ tin, `send` vào kết nối đã đóng có thể sinh tín hiệu `SIGPIPE` và giết client không báo gì.
 
-3. **Chờ bận (busy waiting) ở luồng chính.** Vòng `while(1){ if(flag) ... }` kiểm tra liên tục không nghỉ, làm một nhân CPU chạy gần 100% chỉ để chờ. Nên thay bằng `pthread_join` hoặc condition variable.
+2. **Ctrl+C in `Bye` nhưng không thoát.** `return` từ `main` gọi `exit()`, hàm này phải **dọn dẹp `stdin`, `stdout`** trước khi tắt tiến trình, và muốn dọn `stdin` thì phải lấy **khóa của `stdin`**. Trong khi đó luồng gửi đang ở trong `fgets`: `fgets` lấy khóa `stdin` lúc bắt đầu và chỉ nhả khi đọc xong một dòng, nên luồng gửi **giữ khóa trong lúc chờ bàn phím**. Luồng chính chờ khóa, luồng gửi chờ người gõ, nên chương trình đứng im sau khi in `Bye` (đã kiểm tra: luồng chính đứng ở `futex_wait`, luồng gửi đứng ở `read`).
+   - Gõ `exit` thì thoát được: luồng gửi đọc xong, nhả khóa, **ra khỏi vòng lặp và kết thúc**, không còn ai giành lại khóa.
+   - Nhấn Enter trống thì vẫn treo: `fgets` nhả khóa nhưng vòng lặp gọi lại `fgets` ngay, giành lại khóa trước khi luồng chính kịp lấy.
+   - Ctrl+\ (`SIGQUIT`) thì thoát ngay: hệ điều hành giết thẳng tiến trình, bỏ qua bước dọn dẹp.
 
-4. **Tin đầu tiên dính vào tên** khi thử với `nc` (`GiangGiang: xin chao`), vì tên gửi đủ 32 byte và không có `\n`. Với server thật thì không bị, vì server đọc đúng 32 byte.
+3. **Chỉ thêm `flag = 1` cho lỗi 1 là chưa đủ.** Đã thử: khi server tắt, client in `Server disconnected.` rồi `Bye`, nhưng vẫn treo đúng như lỗi 2. Vì vậy **lỗi 1 và lỗi 2 phải sửa cùng nhau**. Các hướng sửa:
+   - Thay `return` cuối `main` bằng `fflush(stdout); _exit(0);` (bỏ qua bước dọn dẹp). Đã thử: client thoát được khi server tắt.
+   - Cho luồng gửi chờ bàn phím **có thời hạn** bằng `poll()`/`select()`, hết hạn thì kiểm tra `flag`, để các luồng tự kết thúc đàng hoàng.
 
-5. **Kiểm tra độ dài tên sai.** `fgets(name, 32, ...)` chỉ đọc tối đa 31 ký tự nên `strlen(name) > 32` không bao giờ đúng; thông báo lỗi lại ghi "less than 30".
+4. **Ctrl+D (hết dữ liệu nhập) làm ngập server.** `fgets` trả về `NULL` nhưng code không kiểm tra, nên `message` rỗng được gửi đi thành `Giang: `, rồi vòng lặp gọi lại `fgets`, lại nhận `NULL` ngay lập tức, cứ thế lặp không nghỉ. Thử nghiệm: khoảng 3 MB trong 2 giây. Sửa: `if (fgets(message, LENGTH, stdin) == NULL) break;`
 
-6. **Cảnh báo `sprintf`.** Tên (tối đa 31) + nội dung (tối đa 2047) + `": "` + `"\n"` có thể vượt 2080 byte của `buffer`. Nên dùng `snprintf`.
+5. **Chờ bận (busy waiting) ở luồng chính.** Vòng `while(1){ if(flag) ... }` kiểm tra liên tục không nghỉ, làm một nhân CPU chạy gần 100% chỉ để chờ (xem bằng lệnh `top`). Nên thay bằng `pthread_join` hoặc condition variable.
 
-7. **`recv` có thể làm đầy cả 2048 byte**, không còn chỗ cho `\0`, khiến `printf("%s")` đọc lố. Nên dùng `recv(..., LENGTH - 1, ...)`.
+### 6.2. Lỗi về dữ liệu và bộ nhớ
 
-8. **IP cố định `127.0.0.1`**, chỉ chạy được cùng máy với server.
+6. **Luật độ dài tên của client và server không khớp.** `fgets(name, 32, ...)` cho tên tối đa 31 ký tự, nên điều kiện `strlen(name) > 32` không bao giờ đúng; thông báo lỗi lại ghi "less than 30". Server mẫu chỉ chấp nhận tên **2–30 ký tự** (`strlen(name) >= 32-1` thì từ chối). Nhập đúng 31 ký tự: client vẫn in `WELCOME`, nhưng server từ chối và đóng kết nối, client tưởng đã vào phòng rồi treo (lỗi 1). Ngoài ra, tên dài hơn 31 ký tự thì phần thừa còn trong bộ nhớ đầu vào và bị đọc thành tin nhắn đầu tiên.
 
-Các lỗi 1, 2 sẽ sửa ở tuần 3 (yêu cầu "server tắt thì client báo rồi thoát, không bị treo").
+7. **Cảnh báo `sprintf`.** Trường hợp xấu nhất: tên 31 + `": "` 2 + nội dung 2047 + `"\n"` 1 + `\0` 1 = **2082 byte**, vượt 2080 byte của `buffer`. Đây là nguồn gốc cảnh báo `-Wformat-overflow` khi biên dịch. Nên dùng `snprintf`.
+
+8. **`recv` có thể làm đầy cả 2048 byte**, không còn chỗ cho `\0`, khiến `printf("%s")` đọc lố ra ngoài mảng. Nên dùng `recv(..., LENGTH - 1, ...)`.
+
+9. **Hàm luồng sai dạng.** `pthread_create` yêu cầu hàm dạng `void *f(void *arg)`, nhưng `send_msg_handler` và `recv_msg_handler` có dạng `void f()` và bị ép bằng `(void *)`. Chạy được trên x86-64 Linux nhưng theo chuẩn C là hành vi không được đảm bảo. Nên viết lại đúng dạng và `return NULL;`.
+
+### 6.3. Hạn chế khác
+
+10. **Tin đầu tiên dính vào tên** khi thử với `nc` (`GiangGiang: xin chao`): TCP là dòng byte liên tục, tên gửi đủ 32 byte (27 byte `\0` không hiển thị) và không có `\n`. Với server thật thì không bị, vì server đọc đúng 32 byte.
+
+11. **Tên tiếng Việt có dấu:** Linux dùng UTF-8, mỗi chữ có dấu chiếm 2–3 byte và `strlen` đếm byte. Ví dụ `Trường` là 6 chữ nhưng 9 byte, nên tên có dấu bị giới hạn chặt hơn 31.
+
+12. **Giả danh người khác:** client tự gắn tên vào tin (`sprintf(buffer, "%s: %s\n", ...)`), server chỉ chuyển tiếp nguyên văn. Một client bị sửa hoặc dùng `nc` có thể gửi `An: ...` dù không phải An. An toàn hơn là để server tự gắn tên theo kết nối.
+
+13. **Thiếu kiểm tra lỗi:** không kiểm tra kết quả `socket()` và `send()`; `atoi` không báo lỗi khi cổng nhập sai (`abc` thành 0, chỉ thấy `ERROR: connect`); `ERROR: connect` không nói lý do (nên dùng `perror`); nhánh `recv` trả `-1` bị bỏ trống; `server_addr` không được xóa trắng bằng `memset` trước khi điền.
+
+14. **IP cố định `127.0.0.1`**, chỉ chạy được cùng máy với server.
+
+15. **Màn hình lộn xộn khi đang gõ dở mà có tin đến** (ví dụ `> xinBinh: hi`): hai luồng cùng in ra một màn hình không phối hợp. Chữ đang gõ không mất, chỉ hiển thị xấu.
 
 ## 7. Liên hệ lý thuyết hệ điều hành
 
-- **Tiến trình và luồng:** client là một tiến trình có 3 luồng dùng chung bộ nhớ (`sockfd`, `name`, `flag`).
-- **Lời gọi bị chặn:** `fgets`, `recv` khiến luồng gọi nó đứng chờ; tách luồng để việc chờ này không chặn việc khác.
-- **Tín hiệu (signal):** SIGINT khi nhấn Ctrl+C, xử lý bằng hàm `catch_ctrl_c_and_exit`.
-- **Khóa và chờ tài nguyên:** lỗi số 2 ở mục 6.
-- **Chờ bận:** lỗi số 3 ở mục 6.
+- **Tiến trình và luồng:** mỗi client là 1 tiến trình gồm 3 luồng (chính, gửi, nhận) dùng chung biến toàn cục (`sockfd`, `name`, `flag`); biến cục bộ nằm trên stack riêng của từng luồng. Hai client là hai tiến trình với vùng nhớ tách biệt. Server mẫu là 1 tiến trình gồm 1 + N luồng (N là số client), dùng `clients_mutex` để bảo vệ danh sách client. Đã kiểm chứng bằng `ps -T`.
+- **Lời gọi bị chặn:** `fgets`, `recv`, `connect` khiến luồng gọi nó đứng chờ; tách luồng để việc chờ bàn phím và chờ mạng không chặn nhau. Cách khác dùng một luồng là `select()`/`poll()`.
+- **Lập lịch:** sau `pthread_create`, thứ tự chạy các luồng do bộ lập lịch của hệ điều hành quyết định.
+- **Tín hiệu (signal):** SIGINT (Ctrl+C) được bắt bằng `signal()`; hàm xử lý chỉ dựng cờ vì tín hiệu có thể chen ngang bất kỳ lúc nào. `volatile` buộc đọc lại giá trị thật từ bộ nhớ, `sig_atomic_t` đảm bảo đọc/ghi trong một bước. SIGQUIT (Ctrl+\) và SIGPIPE giữ hành vi mặc định là kết thúc tiến trình.
+- **Khóa và chờ tài nguyên – có phải deadlock?** Lỗi 2 thỏa 3 điều kiện của deadlock (loại trừ tương hỗ, giữ và chờ, không chiếm đoạt) nhưng **không có chờ vòng tròn**: luồng gửi chờ bàn phím, không chờ thứ gì luồng chính đang giữ. Vì vậy, nói chặt chẽ thì đây **không phải deadlock**, mà là một luồng bị chặn vô hạn vì chờ khóa mà luồng khác giữ trong lúc chờ nhập xuất; chỉ cần người dùng gõ một dòng là được giải thoát.
+- **Chờ bận:** lỗi 5, lãng phí CPU.
+- **Bộ đệm nhập xuất:** `printf` ghi vào bộ đệm, chỉ thật sự in khi gặp `\n`, bộ đệm đầy, gọi `fflush`, hoặc khi chuẩn bị đọc bàn phím (glibc). Vì vậy `fflush(stdout)` là bắt buộc trong luồng nhận.
+- **Bảo mật (Chương 7):** lỗi 12, server tin tưởng tên do client tự khai.
