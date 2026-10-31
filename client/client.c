@@ -74,10 +74,9 @@ void *recv_msg_handler(void *arg) {
       		printf("%s", message);
       		str_overwrite_stdout();
     	}
-		else if (receive == 0) {
+		else { // 0: server dong ket noi (hoac da shutdown), -1: loi ket noi
 			break;
-    	}
-		else {} // -1
+		}
 		memset(message, 0, sizeof(message)); // cho mang ve \0
   	}
 	return NULL;
@@ -136,14 +135,13 @@ int main(int argc, char **argv){
 		return EXIT_FAILURE;
 	}
 
-	while (1){
-		if(flag){
-			printf("\nBye\n");
-			break;
-    	}
+	pthread_join(recv_msg_thread, NULL);
+
+	if (!flag) {
+		printf("\nMat ket noi voi server.\n");
 	}
-
+	printf("Bye\n");
+	fflush(stdout);
 	close(sockfd);
-
-	return EXIT_SUCCESS;
+	_exit(EXIT_SUCCESS);
 }
