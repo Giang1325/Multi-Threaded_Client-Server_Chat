@@ -12,7 +12,7 @@
 #define LENGTH 2048
 
 // Global variables
-volatile sig_atomic_t flag = 0; // loai so chi viet 1 lan, khong bi chia ra (xu ly Ctrl C khong bi sai flag)
+volatile sig_atomic_t flag = 0; // 1 = nguoi dung chu dong thoat (/quit, Ctrl+D); 0 ma mat ket noi = server dong
 int sockfd = 0;
 char name[32]; // them '\0' o cuoi de biet ket thuc ten
 
@@ -32,7 +32,10 @@ void str_trim_lf (char* arr, int length) { // trim \n thay bang \0
 }
 
 void catch_ctrl_c_and_exit(int sig) {
-    flag = 1;
+	(void)sig;
+	const char msg[] = "\nBye\n";
+	write(STDOUT_FILENO, msg, sizeof(msg) - 1); // tranh deadlock = write
+	_exit(EXIT_SUCCESS);
 }
 
 void *send_msg_handler(void *arg) {
@@ -91,12 +94,11 @@ int main(int argc, char **argv){
 	char *ip = "127.0.0.1";
 	int port = atoi(argv[1]); // doi port tu chuoi thanh so
 
-	signal(SIGINT, catch_ctrl_c_and_exit); // khi chuong trinh chet (Ctrl C la tin hieu SIGINT) thì goi ham nay
+	signal(SIGINT, catch_ctrl_c_and_exit); // Ctrl C thì lich su hon
 
 	printf("Nhap ten: ");
   	fgets(name, 32, stdin);
   	str_trim_lf(name, strlen(name));
-
 
 	if (strlen(name) > 32 || strlen(name) < 2){
 		printf("Ten phai nho hon 30 va lon hon 2 ky tu.\n");
