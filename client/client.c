@@ -35,7 +35,8 @@ void catch_ctrl_c_and_exit(int sig) {
     flag = 1;
 }
 
-void send_msg_handler() {
+void *send_msg_handler(void *arg) {
+	(void)arg;
   	char message[LENGTH] = {};
 	char buffer[LENGTH + 32] = {};
 
@@ -56,9 +57,11 @@ void send_msg_handler() {
     	bzero(buffer, LENGTH + 32);
   	}
   	catch_ctrl_c_and_exit(2);
+	return NULL;
 }
 
-void recv_msg_handler() {
+void *recv_msg_handler(void *arg) {
+	(void)arg;
 	char message[LENGTH] = {};
   	while (1) {
 		int receive = recv(sockfd, message, LENGTH, 0);
@@ -72,6 +75,7 @@ void recv_msg_handler() {
 		else {} // -1
 		memset(message, 0, sizeof(message)); // cho mang ve \0
   	}
+	return NULL;
 }
 
 int main(int argc, char **argv){
@@ -116,13 +120,13 @@ int main(int argc, char **argv){
 	printf("=== WELCOME TO THE CHATROOM ===\n");
 
 	pthread_t send_msg_thread;
-  	if(pthread_create(&send_msg_thread, NULL, (void *) send_msg_handler, NULL) != 0){ // giao viec cho ham
+  	if(pthread_create(&send_msg_thread, NULL, send_msg_handler, NULL) != 0){ // giao viec cho ham
 		printf("ERROR: pthread\n");
-    return EXIT_FAILURE;
+    	return EXIT_FAILURE;
 	}
 
 	pthread_t recv_msg_thread;
-  	if(pthread_create(&recv_msg_thread, NULL, (void *) recv_msg_handler, NULL) != 0){ // giao viec cho ham
+  	if(pthread_create(&recv_msg_thread, NULL, recv_msg_handler, NULL) != 0){ // giao viec cho ham
 		printf("ERROR: pthread\n");
 		return EXIT_FAILURE;
 	}
