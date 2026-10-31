@@ -37,26 +37,31 @@ void catch_ctrl_c_and_exit(int sig) {
 
 void *send_msg_handler(void *arg) {
 	(void)arg;
-  	char message[LENGTH] = {};
+	char message[LENGTH] = {};
 	char buffer[LENGTH + 32] = {};
 
-  	while(1) {
-  		str_overwrite_stdout();
-    	fgets(message, LENGTH, stdin);
-    	str_trim_lf(message, LENGTH);
-
-    	if (strcmp(message, "exit") == 0) {
+	while (1) {
+		str_overwrite_stdout();
+		if (fgets(message, LENGTH, stdin) == NULL) { // Ctrl+D (het du lieu nhap) hoac loi doc
 			break;
-    	}
+		}
+		str_trim_lf(message, LENGTH);
+
+		if (strcmp(message, "/quit") == 0) {
+			break;
+		}
 		else {
-      		sprintf(buffer, "%s: %s\n", name, message);
-      		send(sockfd, buffer, strlen(buffer), 0);
-    	}
+			sprintf(buffer, "%s: %s\n", name, message);
+			if (send(sockfd, buffer, strlen(buffer), MSG_NOSIGNAL) < 0) { // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+				break;
+			}
+		}
 
 		bzero(message, LENGTH);
-    	bzero(buffer, LENGTH + 32);
-  	}
-  	catch_ctrl_c_and_exit(2);
+		bzero(buffer, LENGTH + 32);
+	}
+	flag = 1;
+	shutdown(sockfd, SHUT_RDWR); // dong ket noi 2 chieu, recv o luong nhan tra ve 0
 	return NULL;
 }
 
