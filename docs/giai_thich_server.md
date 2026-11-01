@@ -1,41 +1,74 @@
-# 1 Code server.c co nhung ham nao ? Chuc nang cua cac ham do la gi ?
-Code server.c gom 5 ham chinh
-- ham main(): nhan ket noi va sinh luong
-Dung ham accept() de nhan ket noi moi, roi dung ham pthread_create() sinh luong handle_client() cho tung client
+# 1. Code server.c có những hàm nào? Chức năng của các hàm đó là gì?
 
-- handle_client(): phuc vu 1 client
+Code `server.c` gồm 9 hàm chính:
 
-- send_message(): phat chuoi tin cho tat ca client tru sender (t nghi la ten ham de gay hieu nham, can nhac nen doi ten ham. Luc dau t nghi no la ham gui tin nhan tu 1 client nhung khi doc lai code client thi no dung ham send())
+- **`main()`**: Nhận kết nối và sinh luồng.  
+  Dùng hàm `accept()` để nhận kết nối mới, rồi dùng hàm `pthread_create()` sinh luồng `handle_client()` cho từng client.
 
-- queue_add() va queue_remove(): quan ly danh sach client
+- **`handle_client()`**: Phục vụ 1 client.
 
-Ngoai ra co 3 ham phu nua la str_trim_lf(), print_client_addr(), str_overwrite_stdout()
-nhung ham str_overwrite_stdout() khong duoc dung,co the tac gia code copy thua tu client.c sang.
+- **`send_message()`**: Phát chuỗi tin cho tất cả client trừ người gửi (sender).
 
-# 2. Khai bao du lieu dung chung
-Moi client duoc khai bao gom cac truong thong tin sau:
+- **`list_online()`**: Ghép danh sách người đang online thành 1 dòng để in ra.
 
-- address (struct sockaddr_in): Dia chi mang cua client
-+ sin_family
-+ sin_port
-+ sin_addr
-+ sin_zero[8]
-- sockfd (int): Socket File Descriptor (Mo ta tep socket)
-- uid (int): User Identifier (Ma dinh danh user)
-- name (char, [32]): Ten client
+- **`client_add_if_name_free()` và `queue_remove()`**: Quản lý danh sách client.  
+  Hàm `client_add_if_name_free()` thay cho `queue_add()` của code mẫu: có nhiệm vụ kiểm tra tên trùng và ghi vào mảng (danh sách client). Hàm này kiểm tra tên trùng và ghi vào mảng cùng một hàm để dùng chung 1 lần giữ khóa, nhằm đảm bảo chỉ một người được lấy khóa tại một thời điểm. Nếu tách thành 2 lần thì hai người trùng tên vẫn có thể xảy ra.
 
-B1: Khai bao 1 mang cac pointers toi cac client_t
-client_t *clients[MAX_CLIENTS];
-Moi 1 pointer luu tru DIA CHI cua 1 struct client_t, khong luu GIA TRI cua cac thong tin trong struct do
+- **`name_is_valid()`**: Kiểm tra tên có hợp lệ hay không.
 
-B2: Khai bao khoa mutex
+- **`recv_line()`**: Đọc từng byte từ socket, gặp `"\n"` thì dừng, trả về 1 dòng (không chứa `"\n"`, luôn kết thúc là `"\0"`). Hàm này khắc phục 2 lỗi ở code mẫu:  
+  1. Đính `"\n"` vào tên.  
+  2. `strlen(name)` đọc tràn ra ngoài do không có ký tự `"\0"` nếu client gửi ít hơn 32 byte.
 
-Tom lai
-- client_t: 1 struct gom 4 truong thong tin
-- clients[]: 1 mang chua cac dia chi cua cac clients
-- clients_mutex la khoa mutex
+- **`send_to()`**: Gửi 1 chuỗi cho đúng 1 client thông qua socket fd của riêng người đó.
 
-Giai thich them ve "mutex" cho ae: mutual exclusion (cơ chế chỉ cho một luồng vào)
+---
 
-# 3. Luong hoat dong
-socket → bind → listen → vòng accept → sinh luồng → handle_client
+# 2. Khai báo dữ liệu dùng chung
+
+Mỗi client được khai báo gồm các trường thông tin sau:
+
+- **`address`** (`struct sockaddr_in`): Địa chỉ mạng của client  
+  - `sin_family`  
+  - `sin_port`  
+  - `sin_addr`  
+  - `sin_zero[8]`  
+- **`sockfd`** (`int`): Socket File Descriptor (Mô tả tệp socket)  
+- **`uid`** (`int`): User Identifier (Mã định danh người dùng)  
+- **`name`** (`char[32]`): Tên client  
+
+- **Bước 1**: Khai báo 1 mảng các con trỏ tới các `client_t`:  
+  `client_t *clients[MAX_CLIENTS];`  
+  Mỗi con trỏ lưu trữ **ĐỊA CHỈ** của 1 `struct client_t`, không lưu **GIÁ TRỊ** của các thông tin trong struct đó.
+
+- **Bước 2**: Khai báo khóa mutex.
+
+### Tóm lại:
+- **`client_t`**: 1 struct gồm 4 trường thông tin.
+- **`clients[]`**: 1 mảng chứa các địa chỉ của các client.
+- **`clients_mutex`**: Là khóa mutex.
+
+### Giải thích thêm về "mutex" (Mutual Exclusion - Cơ chế chỉ cho một luồng vào):
+- **Mutual Exclusion**: Là cơ chế đảm bảo rằng khi 1 luồng (thread) đang hoạt động (sử dụng dữ liệu, tài nguyên dùng chung) thì các thread khác không được quyền truy cập vào cùng lúc.
+- **Critical Region (Miền găng)**: Là đoạn mã chương trình có thực hiện truy cập đến dữ liệu, tài nguyên dùng chung.
+$$\rightarrow$$ **Mutual Exclusion** là cơ chế đảm bảo không có thread nào cùng nằm trong Miền găng của nó tại một thời điểm.
+
+---
+
+# 3. Luồng hoạt động
+
+- **Hàm `handle_client()`**:
+  - **Bước 1**: Đọc tên (`recv_line`).
+  - **Bước 2**: Kiểm tra tên nhập vào có hợp lệ (Độ dài ký tự trong khoảng $[2; 31]$, không có dấu cách) hay không (`name_is_valid`).
+  - **Bước 3**: Kiểm tra tên có bị trùng hoặc phòng đầy client không? Nếu không thì thêm client vào (`client_add_if_name_free`).
+  - **Bước 4**: Vòng lặp nhận tin (`while`):
+    - **Điều kiện dừng**: Biến `leave_flag = 1`.
+    - **Chia thành 2 loại tin**: Tin giả và Tin thật.
+      - *Tin giả*: Client cố tình gửi tin nhắn có tiền tố `***`. Ví dụ Quân nhắn là `*** Quan da roi phong` nhưng thực chất là chưa rời phòng.
+      - *Tin thật*: Tin nhắn bình thường.
+  - **Bước 5**: Thoát và dọn dẹp:
+    - Đóng socket kết nối tới client (`close`).
+    - Xóa thông tin client qua `uid`.
+    - Giải phóng bộ nhớ.
+    - Cập nhật biến đếm tổng số client.
+    - Chuyển luồng sang trạng thái Detached (`pthread_detach(pthread_self())`).
