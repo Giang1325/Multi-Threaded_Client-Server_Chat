@@ -152,7 +152,7 @@ void queue_remove(int uid){
 	pthread_mutex_unlock(&clients_mutex);
 }
 
-/* Ghep danh sach nguoi dang online thanh DUNG MOT dong:
+/* Ghep danh sach nguoi dang online thanh 1 dong:
        *** Dang online (3): Giang, Quan, Nam
    LAY KHOA clients_mutex. Chi ghep chuoi vao buf, KHONG gui di; nho vay
    luc write ra mang thi khoa da duoc nha, khong giu khoa khi vao/ra.
