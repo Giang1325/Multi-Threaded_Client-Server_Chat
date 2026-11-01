@@ -68,20 +68,52 @@ void *send_msg_handler(void *arg) {
 	return NULL;
 }
 
+// moi tin hien len man hinh deu di qua ham nay -> Nam them gio vao day.
+void print_msg(const char *line) {
+	if (strncmp(line, "*** ", 4) == 0) { // tin he thong ?
+		printf("\033[33m%s\033[0m\n", line); // in mau
+	}
+	else {
+		printf("%s\n", line);
+	}
+	str_overwrite_stdout();
+}
+
 void *recv_msg_handler(void *arg) {
 	(void)arg;
-	char message[LENGTH] = {};
-  	while (1) {
-		int receive = recv(sockfd, message, LENGTH, 0);
-    	if (receive > 0) {
-      		printf("%s", message);
-      		str_overwrite_stdout();
-    	}
-		else { // 0: server dong ket noi (hoac da shutdown), -1: loi ket noi
+	char buf[LENGTH];
+	size_t len = 0;   // so byte dang co trong buf
+
+	while (1) {
+		if (len == sizeof(buf) - 1) {
+			buf[len] = '\0';
+			print_msg(buf);
+			len = 0;
+		}
+
+		ssize_t n = recv(sockfd, buf + len, sizeof(buf) - 1 - len, 0); // ghi noi tiep sau phan du, chua 1 byte cho '\0'
+		if (n <= 0) { // 0: server dong ket noi (hoac da shutdown), -1: loi ket noi
 			break;
 		}
-		memset(message, 0, sizeof(message)); // cho mang ve \0
-  	}
+		len += n;
+
+		size_t start = 0;
+		for (size_t i = 0; i < len; i++) {
+			if (buf[i] == '\n') {
+				buf[i] = '\0';
+				print_msg(buf + start);
+				start = i + 1;
+			}
+		}
+
+		memmove(buf, buf + start, len - start); // phan du doi ve dau buf
+		len -= start;
+	}
+
+	if (len > 0) {
+		buf[len] = '\0';
+		print_msg(buf);
+	}
 	return NULL;
 }
 
