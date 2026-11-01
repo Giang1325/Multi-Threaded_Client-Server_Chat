@@ -82,6 +82,23 @@ int recv_line(int fd, char *buf, size_t size){
 	}
 
 	buf[size - 1] = '\0';
+
+	/* buf da day nhung chua toi '\n': doc bo (vut di) phan con lai cua
+	   dong nay. Neu khong, phan con lai van nam trong socket, va lan
+	   recv_line tiep theo se vo tinh doc trung no, coi la mot dong moi.
+	   (phat hien boi Giang khi review: tin qua dai, phan duoi van lot
+	   ra ngoai thanh mot tin rieng gui cho nguoi khac) */
+	char c;
+	ssize_t r;
+	while((r = recv(fd, &c, 1, 0)) > 0 && c != '\n'){
+		/* chi doc va vut di, khong luu vao dau ca */
+	}
+	if(r == 0){
+		return LINE_CLOSED;
+	}
+	if(r < 0){
+		return LINE_ERR;
+	}
 	return LINE_LONG;
 }
 
@@ -322,7 +339,14 @@ int main(int argc, char **argv){
   /* Ignore pipe signals */
 	signal(SIGPIPE, SIG_IGN);
 
-	if(setsockopt(listenfd, SOL_SOCKET,(SO_REUSEPORT | SO_REUSEADDR),(char*)&option,sizeof(option)) < 0){
+	/* Chi SO_REUSEADDR: cho bind lai cong ngay sau khi server cu vua tat,
+	   khong phai cho nhieu server cung nghe chung mot cong.
+	   (phat hien boi Giang: (SO_REUSEPORT | SO_REUSEADDR) la OR hai TEN
+	   hang so, SO_REUSEADDR=2 SO_REUSEPORT=15, 2|15=15 nen chi
+	   SO_REUSEPORT duoc bat - no cho phep nhieu tien trinh dung chung
+	   1 cong, nen 2 server chay cung luc van khoi dong duoc, client bi
+	   chia ngau nhien sang 2 ben) */
+	if(setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char*)&option, sizeof(option)) < 0){
 		perror("ERROR: setsockopt failed");
     return EXIT_FAILURE;
 	}
