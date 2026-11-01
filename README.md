@@ -28,14 +28,30 @@ Một server xử lý tuần tự chỉ phục vụ được một client tại 
 
 ## Giao thức (nhóm thống nhất — tuần 2)
 
-- **Gửi tên:** ngay sau khi kết nối, Client gửi `<tên>\n`; Server đọc đến khi gặp `\n`. Tên dài 2–31 ký tự, không chứa dấu cách.
-- **Trùng tên:** Server trả `*** Ten "<tên>" da co nguoi dung. Vui long chon ten khac.` rồi đóng kết nối.
-- **Tin nhắn thường:** `<tên>: <nội dung>\n` — **Server** gắn tên, không phải Client, để không ai mạo danh được người khác.
-- **Dấu hiệu phân biệt:** mọi tin do Server sinh ra đều mở đầu bằng `*** `, nên Client chỉ cần so 4 ký tự đầu (`strncmp(buf, "*** ", 4)`) là biết đó không phải tin của người dùng. Tin của người dùng nếu bắt đầu bằng `*** ` sẽ bị Server lọc bỏ.
-- **Vào/rời phòng:** `*** <tên> da vao phong` và `*** <tên> da roi phong`.
-- **`/list`:** trả về đúng một dòng — `*** Dang online (3): Giang, Quan, Nam`.
+### Client gửi gì
+
+| Khi nào | Nội dung |
+|---|---|
+| Ngay sau khi kết nối | `<tên>\n` |
+| Mỗi lần chat | `<nội dung>\n` |
+| Xem ai đang online | `/list\n` |
+
+### Server phát gì
+
+| Tình huống | Server gửi |
+|---|---|
+| Tên hợp lệ, vào được phòng | `*** <tên> da vao phong\n` |
+| Rời phòng (chủ động hoặc đứt kết nối) | `*** <tên> da roi phong\n` |
+| Tin nhắn thường | `<tên>: <nội dung>\n` |
+| Gõ `/list` | `*** Dang online (n): ten1, ten2, ...\n` — thứ tự theo ô trong mảng, không theo thời gian vào phòng |
+| Trùng tên | `*** Ten "<tên>" da co nguoi dung. Vui long chon ten khac.\n` |
+| Tên không hợp lệ | `*** Ten khong hop le. Ten dai 2-31 ky tu, khong chua dau cach.\n` |
+| Phòng đầy | `*** Phong da day, vui long thu lai sau.\n` |
+
+**Dấu hiệu phân biệt:** mọi tin do Server sinh ra đều mở đầu bằng `*** `, nên Client chỉ cần so 4 ký tự đầu (`strncmp(buf, "*** ", 4)`) là biết đó không phải tin của người dùng. Tin của người dùng nếu bắt đầu bằng `*** ` sẽ bị Server lọc bỏ.
 
 Giao thức trên **khác** code của repo mẫu (mẫu gửi tên đúng 32 byte cố định, Client tự gắn tên, không có `/list` lẫn kiểm tra trùng tên). Phần cài đặt làm ở tuần 3.
+
 
 ## Phạm vi
 
