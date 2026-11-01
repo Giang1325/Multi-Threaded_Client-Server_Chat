@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <ctype.h>
 
 #define LENGTH 2048
 
@@ -29,6 +30,34 @@ void str_trim_lf (char* arr, int length) { // trim \n thay bang \0
       		break;
     	}
   	}
+}
+
+int read_line(char *buf, int size) {
+	if (fgets(buf, size, stdin) == NULL) {
+		return -1;
+	}
+	char *nl = strchr(buf, '\n'); // tim \n
+	if (nl != NULL) {
+		*nl = '\0';
+	}
+	else {
+		int c;
+		while ((c = getchar()) != '\n' && c != EOF) {} // kiem tra tung ki tu tim \n hoac EOF
+	}
+	return 0;
+}
+
+int name_is_valid(const char *s) {
+	size_t len = strlen(s);
+	if (len < 2 || len > 31) {
+		return 0;
+	}
+	for (size_t i = 0; i < len; i++) {
+		if (isspace((unsigned char)s[i])) {
+			return 0;
+		}
+	}
+	return 1;
 }
 
 void catch_ctrl_c_and_exit(int sig) {
@@ -128,14 +157,20 @@ int main(int argc, char **argv){
 
 	signal(SIGINT, catch_ctrl_c_and_exit); // Ctrl C thì lich su hon
 
-	printf("Nhap ten: ");
-  	fgets(name, 32, stdin);
-  	str_trim_lf(name, strlen(name));
-
-	if (strlen(name) > 32 || strlen(name) < 2){
-		printf("Ten phai nho hon 30 va lon hon 2 ky tu.\n");
-		return EXIT_FAILURE;
+	char line[LENGTH];
+	while (1) {
+		printf("Nhap ten: ");
+		fflush(stdout);
+		if (read_line(line, sizeof(line)) < 0) { // Ctrl + D
+			printf("\nBye\n");
+			return EXIT_SUCCESS;
+		}
+		if (name_is_valid(line)) {
+			break;
+		}
+		printf("Ten phai dai 2-31 ky tu va khong co dau cach. Nhap lai.\n");
 	}
+	strcpy(name, line); // ok
 
 	struct sockaddr_in server_addr; // dia chi server
 
@@ -153,7 +188,12 @@ int main(int argc, char **argv){
 	}
 
 	// Send name
-	send(sockfd, name, 32, 0);
+	char name_line[sizeof(name) + 1];
+	snprintf(name_line, sizeof(name_line), "%s\n", name);
+	if (send(sockfd, name_line, strlen(name_line), MSG_NOSIGNAL) < 0) { // send nhan -1 neu loi chu khong crash
+		perror("ERROR: send name");
+		return EXIT_FAILURE;
+	}
 
 	printf("=== WELCOME TO THE CHATROOM ===\n");
 
