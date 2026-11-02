@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <ctype.h>
+#include <time.h>
 
 #define LENGTH 2048
 
@@ -83,13 +84,22 @@ void *send_msg_handler(void *arg) {
 	return NULL;
 }
 
-// moi tin hien len man hinh deu di qua ham nay -> Nam them gio vao day.
+void current_hhmm(char *out, size_t size) {
+	time_t now = time(NULL);
+	struct tm tm_now;
+	if (localtime_r(&now, &tm_now) == NULL || strftime(out, size, "%H:%M", &tm_now) == 0) {
+		snprintf(out, size, "--:--");
+	}
+}
+
 void print_msg(const char *line) {
+	char hhmm[6];
+	current_hhmm(hhmm, sizeof(hhmm));
 	if (strncmp(line, "*** ", 4) == 0) { // tin he thong ?
-		printf("\033[33m%s\033[0m\n", line); // in mau
+		printf("[%s] \033[33m%s\033[0m\n", hhmm, line); // gio mau thuong, noi dung mau vang
 	}
 	else {
-		printf("%s\n", line);
+		printf("[%s] %s\n", hhmm, line);
 	}
 	str_overwrite_stdout();
 }
