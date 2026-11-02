@@ -22,16 +22,6 @@ void str_overwrite_stdout() {
   	fflush(stdout); // in > ra ngay de khong nam o buffer nua
 }
 
-void str_trim_lf (char* arr, int length) { // trim \n thay bang \0
-  	int i;
-  	for (i = 0; i < length; i++) {
-    	if (arr[i] == '\n') {
-      		arr[i] = '\0';
-      		break;
-    	}
-  	}
-}
-
 int read_line(char *buf, int size) {
 	if (fgets(buf, size, stdin) == NULL) {
 		return -1;
@@ -69,28 +59,24 @@ void catch_ctrl_c_and_exit(int sig) {
 
 void *send_msg_handler(void *arg) {
 	(void)arg;
-	char message[LENGTH] = {};
-	char buffer[LENGTH + 32] = {};
+	char message[LENGTH];
+	char buffer[LENGTH + 1];
 
 	while (1) {
 		str_overwrite_stdout();
-		if (fgets(message, LENGTH, stdin) == NULL) { // Ctrl+D (het du lieu nhap) hoac loi doc
+		if (read_line(message, sizeof(message)) < 0) { // Ctrl+D (het du lieu nhap)
 			break;
 		}
-		str_trim_lf(message, LENGTH);
-
 		if (strcmp(message, "/quit") == 0) {
 			break;
 		}
-		else {
-			sprintf(buffer, "%s: %s\n", name, message);
-			if (send(sockfd, buffer, strlen(buffer), MSG_NOSIGNAL) < 0) { // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
-				break;
-			}
+		if (message[0] == '\0') {
+			continue;
 		}
-
-		bzero(message, LENGTH);
-		bzero(buffer, LENGTH + 32);
+		snprintf(buffer, sizeof(buffer), "%s\n", message);
+		if (send(sockfd, buffer, strlen(buffer), MSG_NOSIGNAL) < 0) { // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+			break;
+		}
 	}
 	flag = 1;
 	shutdown(sockfd, SHUT_RDWR); // dong ket noi 2 chieu, recv o luong nhan tra ve 0
