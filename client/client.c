@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <ctype.h>
 #include <time.h>
+#include <errno.h>
 
 #define LENGTH 2048
 
@@ -49,6 +50,16 @@ int name_is_valid(const char *s) {
 		}
 	}
 	return 1;
+}
+
+int parse_port(const char *s) {
+	char *end;
+	errno = 0;
+	long v = strtol(s, &end, 10);
+	if (errno != 0 || end == s || *end != '\0' || v < 1 || v > 65535) {
+		return -1;
+	}
+	return (int)v;
 }
 
 void catch_ctrl_c_and_exit(int sig) {
@@ -148,10 +159,14 @@ int main(int argc, char **argv){
 		return EXIT_FAILURE;
 	}
 
-	char *ip = "127.0.0.1";
-	int port = atoi(argv[1]); // doi port tu chuoi thanh so
+	const char *ip = "127.0.0.1";
+	int port = parse_port(argv[1]);
+	if (port < 0) {
+		fprintf(stderr, "Cong khong hop le: %s (phai la so tu 1 den 65535)\n", argv[1]);
+		return EXIT_FAILURE;
+	}
 
-	signal(SIGINT, catch_ctrl_c_and_exit); // Ctrl C thì lich su hon
+	signal(SIGINT, catch_ctrl_c_and_exit); // lich su
 
 	char line[LENGTH];
 	while (1) {
@@ -172,14 +187,19 @@ int main(int argc, char **argv){
 
 	/* Socket settings */ // thong tin server
 	sockfd = socket(AF_INET, SOCK_STREAM, 0); //TCP
+	if (sockfd < 0) {
+		perror("ERROR: socket");
+		return EXIT_FAILURE;
+	}
+	memset(&server_addr, 0, sizeof(server_addr));
   	server_addr.sin_family = AF_INET;
   	server_addr.sin_addr.s_addr = inet_addr(ip);
   	server_addr.sin_port = htons(port);
 
   	// Connect to Server
-  	int err = connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-  	if (err == -1) {
-		printf("ERROR: connect\n");
+	if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		perror("ERROR: connect");
+		close(sockfd);
 		return EXIT_FAILURE;
 	}
 
@@ -188,21 +208,27 @@ int main(int argc, char **argv){
 	snprintf(name_line, sizeof(name_line), "%s\n", name);
 	if (send(sockfd, name_line, strlen(name_line), MSG_NOSIGNAL) < 0) { // send nhan -1 neu loi chu khong crash
 		perror("ERROR: send name");
+		close(sockfd);
 		return EXIT_FAILURE;
 	}
 
 	printf("=== WELCOME TO THE CHATROOM ===\n");
 
 	pthread_t send_msg_thread;
-  	if(pthread_create(&send_msg_thread, NULL, send_msg_handler, NULL) != 0){ // giao viec cho ham
-		printf("ERROR: pthread\n");
-    	return EXIT_FAILURE;
+	int rc = pthread_create(&send_msg_thread, NULL, send_msg_handler, NULL);
+	if (rc != 0) {
+		fprintf(stderr, "ERROR: pthread_create (gui): %s\n", strerror(rc));
+		close(sockfd);
+		return EXIT_FAILURE;
 	}
 
 	pthread_t recv_msg_thread;
-  	if(pthread_create(&recv_msg_thread, NULL, recv_msg_handler, NULL) != 0){ // giao viec cho ham
-		printf("ERROR: pthread\n");
-		return EXIT_FAILURE;
+	rc = pthread_create(&recv_msg_thread, NULL, recv_msg_handler, NULL);
+	if (rc != 0) {
+		fprintf(stderr, "ERROR: pthread_create (nhan): %s\n", strerror(rc));
+		fflush(stdout);
+		close(sockfd);
+		_exit(EXIT_FAILURE); // deadlock
 	}
 
 	pthread_join(recv_msg_thread, NULL);
