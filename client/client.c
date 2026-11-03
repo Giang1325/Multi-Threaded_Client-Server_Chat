@@ -21,10 +21,10 @@ char name[32]; // them '\0' o cuoi de biet ket thuc ten
 
 void str_overwrite_stdout() {
     printf("%s", "> ");
-      fflush(stdout); // in > ra ngay de khong nam o buffer nua
+    fflush(stdout); // in > ra ngay de khong nam o buffer nua
 }
 
-int read_line(char *buf, int size) {
+int read_line(char *buf, int size) { // 0; -1
     if (fgets(buf, size, stdin) == NULL) {
         return -1;
     }
@@ -39,7 +39,7 @@ int read_line(char *buf, int size) {
     return 0;
 }
 
-int name_is_valid(const char *s) {
+int name_is_valid(const char *s) { // 1; 0
     size_t len = strlen(s);
     if (len < 2 || len > 31) {
         return 0;
@@ -54,8 +54,8 @@ int name_is_valid(const char *s) {
 
 int parse_port(const char *s) {
     char *end;
-    errno = 0;
-    long v = strtol(s, &end, 10);
+    errno = 0; // strtol khong tu reset
+    long v = strtol(s, &end, 10); // return so doc duoc
     if (errno != 0 || end == s || *end != '\0' || v < 1 || v > 65535) {
         return -1;
     }
@@ -63,23 +63,25 @@ int parse_port(const char *s) {
 }
 
 void catch_ctrl_c_and_exit(int sig) {
-    (void)sig;
+    (void)sig; // co y khong dung
     const char msg[] = "\nBye\n";
     write(STDOUT_FILENO, msg, sizeof(msg) - 1); // tranh deadlock = write
     _exit(EXIT_SUCCESS);
 }
 
 void *send_msg_handler(void *arg) {
-    (void)arg;
+    (void)arg; // co y khong dung
     char message[LENGTH];
     char buffer[LENGTH + 1];
 
     while (1) {
         str_overwrite_stdout();
-        if (read_line(message, sizeof(message)) < 0) { // Ctrl+D (het du lieu nhap)
+        if (read_line(message, sizeof(message)) < 0) { // Ctrl+D
+            flag = 1;
             break;
         }
         if (strcmp(message, "/quit") == 0) {
+            flag = 1;
             break;
         }
         if (message[0] == '\0') {
@@ -90,7 +92,6 @@ void *send_msg_handler(void *arg) {
             break;
         }
     }
-    flag = 1;
     shutdown(sockfd, SHUT_RDWR); // dong ket noi 2 chieu, recv o luong nhan tra ve 0
     return NULL;
 }
@@ -128,6 +129,7 @@ void *recv_msg_handler(void *arg) {
         }
 
         ssize_t n = recv(sockfd, buf + len, sizeof(buf) - 1 - len, 0); // ghi noi tiep sau phan du, chua 1 byte cho '\0'
+        // 0: khong co flag nao, lam nhu mac dinh
         if (n <= 0) { // 0: server dong ket noi (hoac da shutdown), -1: loi ket noi
             break;
         }
@@ -155,7 +157,7 @@ void *recv_msg_handler(void *arg) {
 
 int main(int argc, char **argv){
     if(argc != 2){
-        printf("Usage: %s <port>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <port>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -168,7 +170,7 @@ int main(int argc, char **argv){
 
     signal(SIGINT, catch_ctrl_c_and_exit); // lich su
 
-    char line[LENGTH];
+    char line[LENGTH]; // strlen tra do dai that
     while (1) {
         printf("Nhap ten: ");
         fflush(stdout);
@@ -183,21 +185,21 @@ int main(int argc, char **argv){
     }
     strcpy(name, line); // ok
 
-    struct sockaddr_in server_addr; // dia chi server
+    struct sockaddr_in server_addr; // dia chi server IPv4
 
     /* Socket settings */ // thong tin server
-    sockfd = socket(AF_INET, SOCK_STREAM, 0); //TCP
+    sockfd = socket(AF_INET, SOCK_STREAM, 0); //TCP; 0: free choice
     if (sockfd < 0) {
         perror("ERROR: socket");
         return EXIT_FAILURE;
     }
     memset(&server_addr, 0, sizeof(server_addr));
-      server_addr.sin_family = AF_INET;
-      server_addr.sin_addr.s_addr = inet_addr(ip);
-      server_addr.sin_port = htons(port);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = inet_addr(ip);
+    server_addr.sin_port = htons(port);
 
-      // Connect to Server
-    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+    // Connect to Server
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) { // ep kieu chung
         perror("ERROR: connect");
         close(sockfd);
         return EXIT_FAILURE;
@@ -215,7 +217,7 @@ int main(int argc, char **argv){
     printf("=== WELCOME TO THE CHATROOM ===\n");
 
     pthread_t send_msg_thread;
-    int rc = pthread_create(&send_msg_thread, NULL, send_msg_handler, NULL);
+    int rc = pthread_create(&send_msg_thread, NULL, send_msg_handler, NULL); // NULL1: stack mac dinh; NULL2: khong truyen vao arg cua ham
     if (rc != 0) {
         fprintf(stderr, "ERROR: pthread_create (gui): %s\n", strerror(rc));
         close(sockfd);
@@ -223,7 +225,7 @@ int main(int argc, char **argv){
     }
 
     pthread_t recv_msg_thread;
-    rc = pthread_create(&recv_msg_thread, NULL, recv_msg_handler, NULL);
+    rc = pthread_create(&recv_msg_thread, NULL, recv_msg_handler, NULL); // 0: ok; != 0: loi
     if (rc != 0) {
         fprintf(stderr, "ERROR: pthread_create (nhan): %s\n", strerror(rc));
         fflush(stdout);
@@ -231,7 +233,7 @@ int main(int argc, char **argv){
         _exit(EXIT_FAILURE); // deadlock
     }
 
-    pthread_join(recv_msg_thread, NULL);
+    pthread_join(recv_msg_thread, NULL); // NULL: khong quan tam gia tri luong nhan
 
     if (!flag) {
         printf("\nMat ket noi voi server.\n");
