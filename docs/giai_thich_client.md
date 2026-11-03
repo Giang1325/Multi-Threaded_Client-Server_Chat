@@ -12,7 +12,7 @@ Client dùng **3 luồng**, vì đọc bàn phím (`fgets`) và đọc mạng (`
 
 - **`main()`**: Luồng chính. Hỏi tên, kết nối, gửi tên, tạo 2 luồng con, rồi **chờ luồng nhận kết thúc bằng `pthread_join()`** và thoát.
 
-- **`send_msg_handler()`**: Luồng gửi. Đọc bàn phím, gửi từng dòng lên server dạng `nội dung\n` (server tự gắn tên). Gặp `/quit` hoặc Ctrl+D thì gọi `shutdown()` để đánh thức luồng nhận.
+- **`send_msg_handler()`**: Luồng gửi. Đọc bàn phím, gửi từng dòng lên server dạng `nội dung\n` (server tự gắn tên). Gặp `/quit` hoặc Ctrl+D thì đặt `flag = 1` rồi gọi `shutdown()` để đánh thức luồng nhận. Nếu `send` lỗi (mất kết nối) thì chỉ gọi `shutdown()`, không đặt `flag`.
 
 - **`recv_msg_handler()`**: Luồng nhận. Nhận dữ liệu từ server, **tách thành từng dòng** theo `\n` rồi in. Cần tách vì TCP là dòng byte: một lần `recv` có thể chứa nhiều tin dính nhau hoặc nửa tin.
 
@@ -73,9 +73,11 @@ Ba luồng trong cùng một tiến trình dùng chung các biến toàn cục:
 | `recv` không chừa chỗ cho `\0` | Chừa 1 byte, tách dòng rồi đặt `\0` |
 | Client tự gắn tên, mạo danh được | Chỉ gửi nội dung, server gắn tên |
 | Hàm luồng sai dạng `void f()` | Viết đúng `void *f(void *arg)`, `return NULL` |
-| Thiếu kiểm tra lỗi (`atoi`, `socket`, `connect`...) | `strtol`, `perror`, `strerror`, `memset` |
+| Thiếu kiểm tra lỗi (`atoi`, `socket`, `connect`...) | `strtol`, `perror`, `strerror`, `memset`, báo lỗi ra `stderr` |
 
 Biên dịch hiện **không còn cảnh báo nào**.
+
+**Lỗi phát hiện khi tự đọc lại code:** bản đầu đặt `flag = 1` sau vòng lặp của luồng gửi, nên cả khi `send` lỗi vì server đã đóng, client vẫn coi là người dùng chủ động thoát và không in `Mat ket noi voi server.`. Lỗi chỉ xảy ra khi hai luồng chạy đua (gửi tin đúng lúc server tắt) nên khó thử bằng tay; đã sửa bằng cách chỉ đặt `flag` ở nhánh `/quit` và Ctrl+D.
 
 ---
 
