@@ -263,8 +263,13 @@ void list_online(char *buf, size_t size){
 	}
 }
 
-/* Send message to all clients except sender */
-void send_message(char *s, int uid){
+/* Phat du lieu nhi phan cho tat ca client tru nguoi gui.
+   LAY KHOA clients_mutex va giu khoa SUOT qua trinh ghi — quan trong voi
+   /file: header va noi dung file nam trong CUNG MOT buffer, ghi trong MOT
+   lan giu khoa duy nhat, de tin cua luong khac khong the xen vao giua
+   (neu goi rieng cho header va payload, giua hai lan do mot luong khac
+   co the chen mot tin nhan vao, pha vo khung giao thuc cua nguoi nhan). */
+void send_data(const void *data, size_t len, int uid){
 	pthread_mutex_lock(&clients_mutex);
 
 	for(int i=0; i<MAX_CLIENTS; ++i){
@@ -272,7 +277,7 @@ void send_message(char *s, int uid){
 			if(clients[i]->uid != uid){
 				/* continue chu khong break: mot client loi khong duoc lam
 				   nhung nguoi xep sau trong mang mat tin */
-				if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+				if(write_all(clients[i]->sockfd, data, len) < 0){
 					perror("ERROR: write to descriptor failed");
 					continue;
 				}
@@ -281,6 +286,11 @@ void send_message(char *s, int uid){
 	}
 
 	pthread_mutex_unlock(&clients_mutex);
+}
+
+/* Send message to all clients except sender */
+void send_message(char *s, int uid){
+	send_data(s, strlen(s), uid);
 }
 
 /* Handle all communication with the client */
