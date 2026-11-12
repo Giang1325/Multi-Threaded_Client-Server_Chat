@@ -357,8 +357,9 @@ int main(int argc, char **argv){
     return EXIT_FAILURE;
   }
 
-  /* Listen */
-  if (listen(listenfd, 10) < 0) {
+  /* Listen. SOMAXCONN thay cho so 10 tu doan: de he dieu hanh tu quyet
+     dinh muc hang doi hop ly, thay vi tu doan mot con so co dinh. */
+  if (listen(listenfd, SOMAXCONN) < 0) {
     perror("ERROR: Socket listening failed");
     return EXIT_FAILURE;
 	}
@@ -368,6 +369,10 @@ int main(int argc, char **argv){
 	while(1){
 		socklen_t clilen = sizeof(cli_addr);
 		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
+		if(connfd < 0){
+			perror("ERROR: accept failed");
+			continue;
+		}
 
 		/* Khong con chot chan o day: chot cu doc cli_count NGOAI khoa trong
 		   khi clients[] lai duoc clients_mutex bao ve, va dung == nen neu
@@ -377,6 +382,11 @@ int main(int argc, char **argv){
 
 		/* Client settings */
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
+		if(!cli){
+			perror("ERROR: malloc client_t failed");
+			close(connfd);
+			continue;
+		}
 		cli->address = cli_addr;
 		cli->sockfd = connfd;
 		cli->uid = uid++;
@@ -384,7 +394,15 @@ int main(int argc, char **argv){
 
 		/* Chua them vao danh sach o day: phai doc ten truoc da, roi
 		   handle_client moi goi client_add_if_name_free de chan trung ten. */
-		pthread_create(&tid, NULL, &handle_client, (void*)cli);
+		int rc = pthread_create(&tid, NULL, &handle_client, (void*)cli);
+		if(rc != 0){
+			/* pthread_create tra ve ma loi truc tiep, khong qua errno,
+			   nen dung strerror(rc) chu khong phai perror. */
+			fprintf(stderr, "ERROR: pthread_create failed: %s\n", strerror(rc));
+			close(connfd);
+			free(cli);
+			continue;
+		}
 	}
 
 	return EXIT_SUCCESS;
