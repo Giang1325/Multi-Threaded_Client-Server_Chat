@@ -25,6 +25,11 @@
 #define LINE_LONG   -2
 #define LINE_CLOSED -3
 
+/* Giao thuc gui file: /file <ten_file> <so_byte>\n roi du lieu nhi phan */
+#define MAX_FILE_SZ   (1024 * 1024)   /* 1 MB, theo README */
+#define FILE_NAME_MAX 255
+#define FILE_HDR_MAX  320             /* du cho "/file <ten:31> <file:255> <so:10>\n" */
+
 static _Atomic unsigned int cli_count = 0;
 static int uid = 10;
 
@@ -50,6 +55,28 @@ void send_to(int fd, const char *s){
 	if(write(fd, s, strlen(s)) < 0){
 		perror("ERROR: write to descriptor failed");
 	}
+}
+
+/* Ghi du len byte ra fd, lap lai neu write() ghi thieu (short write).
+   write() khong dam bao ghi het trong 1 lan goi; voi tin nhan vai chuc
+   byte thi hiem khi lo ra, nhung voi file toi 1 MB thi rat de thieu
+   vi bo dem gui cua he dieu hanh co gioi han.
+   Tra ve 0 neu ghi du, -1 neu loi. */
+int write_all(int fd, const void *data, size_t len){
+	size_t sent = 0;
+
+	while(sent < len){
+		ssize_t w = write(fd, (const char*)data + sent, len - sent);
+
+		if(w < 0){
+			if(errno == EINTR){
+				continue;
+			}
+			return -1;
+		}
+		sent += (size_t)w;
+	}
+	return 0;
 }
 
 /* Doc mot dong tu socket, doc den khi gap '\n'.
@@ -100,6 +127,29 @@ int recv_line(int fd, char *buf, size_t size){
 		return LINE_ERR;
 	}
 	return LINE_LONG;
+}
+
+/* Doc dung n byte vao buf, khong dung lai o '\n' (dung cho du lieu nhi phan
+   nhu file: co the chua bat ky byte nao, ke ca '\0' va '\n'). Khac
+   recv_line o cho khong co khai niem "mot dong". Khong lay khoa.
+   Tra ve: 0  doc du n byte
+           LINE_ERR     loi recv
+           LINE_CLOSED  dau kia dong ket noi giua chung */
+int recv_exact(int fd, void *buf, size_t n){
+	size_t got = 0;
+
+	while(got < n){
+		ssize_t r = recv(fd, (char*)buf + got, n - got, 0);
+
+		if(r == 0){
+			return LINE_CLOSED;
+		}
+		if(r < 0){
+			return LINE_ERR;
+		}
+		got += (size_t)r;
+	}
+	return 0;
 }
 
 /* Ten hop le: dai NAME_MIN..NAME_MAX ky tu, khong chua dau cach.
