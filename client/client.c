@@ -69,6 +69,22 @@ void catch_ctrl_c_and_exit(int sig) {
     _exit(EXIT_SUCCESS);
 }
 
+int send_all(int fd, const void *buf, size_t len) {
+    const char *p = buf; // chay tren tung byte can gui
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, MSG_NOSIGNAL); // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+        if (n < 0) {
+            if (errno == EINTR) { // bi tin hieu cat ngang truoc khi gui duoc gi: gui lai
+                continue;
+            }
+            return -1;
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
 void *send_msg_handler(void *arg) {
     (void)arg; // co y khong dung
     char message[LENGTH];
@@ -88,7 +104,7 @@ void *send_msg_handler(void *arg) {
             continue;
         }
         snprintf(buffer, sizeof(buffer), "%s\n", message);
-        if (send(sockfd, buffer, strlen(buffer), MSG_NOSIGNAL) < 0) { // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+        if (send_all(sockfd, buffer, strlen(buffer)) < 0) {
             break;
         }
     }
@@ -208,7 +224,7 @@ int main(int argc, char **argv){
     // Send name
     char name_line[sizeof(name) + 1];
     snprintf(name_line, sizeof(name_line), "%s\n", name);
-    if (send(sockfd, name_line, strlen(name_line), MSG_NOSIGNAL) < 0) { // send nhan -1 neu loi chu khong crash
+    if (send_all(sockfd, name_line, strlen(name_line)) < 0) {
         perror("ERROR: send name");
         close(sockfd);
         return EXIT_FAILURE;
