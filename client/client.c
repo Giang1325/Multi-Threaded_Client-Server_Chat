@@ -135,6 +135,34 @@ FILE *open_file_to_send(const char *path, off_t *size) {
     return fp;
 }
 
+int send_file(int fd, FILE *fp, const char *name, off_t size) {
+    char header[LENGTH];
+    snprintf(header, sizeof(header), "/file %s %lld\n", name, (long long)size);
+    if (send_all(fd, header, strlen(header)) < 0) {
+        fclose(fp);
+        return -1;
+    }
+
+    char chunk[4096]; // tach tin
+    off_t remaining = size;
+    while (remaining > 0) {
+        size_t want = (remaining < (off_t)sizeof(chunk)) ? (size_t)remaining : sizeof(chunk);
+        size_t got = fread(chunk, 1, want, fp);
+        if (got == 0) {
+            printf(COLORED "*** Loi doc file giua chung, ngat ket noi" RESET "\n");
+            fclose(fp); // sai loi hua
+            return -1;
+        }
+        if (send_all(fd, chunk, got) < 0) {
+            fclose(fp);
+            return -1;
+        }
+        remaining -= (off_t)got;
+    }
+    fclose(fp);
+    return 0;
+}
+
 void *send_msg_handler(void *arg) {
     (void)arg; // co y khong dung
     char message[LENGTH];
@@ -167,8 +195,11 @@ void *send_msg_handler(void *arg) {
             if (fp == NULL) {
                 continue;
             }
-            printf(COLORED "*** San sang gui \"%s\" (%lld byte)" RESET "\n", path_basename(path), (long long)size);
-            fclose(fp);
+            const char *fname = path_basename(path);
+            if (send_file(sockfd, fp, fname, size) < 0) {
+                break;
+            }
+            printf(COLORED "*** Da gui \"%s\" (%lld byte)" RESET "\n", fname, (long long)size);
             continue;
         }
         snprintf(buffer, sizeof(buffer), "%s\n", message);
