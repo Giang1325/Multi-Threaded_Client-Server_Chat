@@ -39,3 +39,6 @@ tests/results/
 
 # ===== File rác Windows sinh ra khi chép file vào WSL =====
 *:Zone.Identifier
+
+# ===== File client nhan duoc (lenh /sendfile) =====
+/downloads/

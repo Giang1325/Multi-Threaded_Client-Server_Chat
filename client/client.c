@@ -231,10 +231,50 @@ void print_msg(const char *line) {
     str_overwrite_stdout();
 }
 
+typedef struct {
+    FILE *out;
+    off_t left;
+    char sender[32];
+    char name[256];
+    char path[300]; // "downloads/<ten file>"
+} recv_file_t;
+
+int file_begin(recv_file_t *rf, const char *line) {
+    long long size;
+    if (sscanf(line, "/file %31s %255s %lld", rf->sender, rf->name, &size) != 3 || size <= 0 || size > FILE_MAX) {
+        return -1;
+    }
+    rf->left = (off_t)size;
+
+    mkdir("downloads", 0755); // access role bat phan
+    snprintf(rf->path, sizeof(rf->path), "downloads/%s", rf->name);
+    rf->out = fopen(rf->path, "wb"); // "wb": ghi nhi phan, ghi de neu trung ten
+    if (rf->out == NULL) {
+        printf(COLORED "*** Khong luu duoc \"%s\": %s (bo qua file nay)" RESET "\n", rf->path, strerror(errno));
+    }
+    return 0;
+}
+
+void file_write(recv_file_t *rf, const char *data, size_t n) {
+    if (rf->out != NULL) {
+        fwrite(data, 1, n, rf->out);
+    }
+    rf->left -= (off_t)n;
+
+    if (rf->left == 0 && rf->out != NULL) {
+        fclose(rf->out);
+        rf->out = NULL;
+        char msg[LENGTH];
+        snprintf(msg, sizeof(msg), "*** Nhan file \"%s\" tu %s -> %s", rf->name, rf->sender, rf->path);
+        print_msg(msg);
+    }
+}
+
 void *recv_msg_handler(void *arg) {
     (void)arg;
     char buf[LENGTH];
     size_t len = 0;   // so byte dang co trong buf
+    recv_file_t rf = { .out = NULL, .left = 0 };
 
     while (1) {
         if (len == sizeof(buf) - 1) {
@@ -252,13 +292,28 @@ void *recv_msg_handler(void *arg) {
 
         size_t pos = 0;
         while (pos < len) {
+            if (rf.left > 0) { // ? file mode
+                size_t take = len - pos;
+                if ((off_t)take > rf.left) {
+                    take = (size_t)rf.left;
+                }
+                file_write(&rf, buf + pos, take);
+                pos += take;
+                continue;
+            }
+
             char *nl = memchr(buf + pos, '\n', len - pos); // tim '\n'
             if (nl == NULL) {
                 break;
             }
             *nl = '\0';
-            print_msg(buf + pos);
+            char *line = buf + pos;
             pos = (size_t)(nl - buf) + 1;
+
+            if (strncmp(line, "/file ", 6) == 0 && file_begin(&rf, line) == 0) {
+                continue;
+            }
+            print_msg(line);
         }
 
         memmove(buf, buf + pos, len - pos);
