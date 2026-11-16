@@ -250,17 +250,19 @@ void *recv_msg_handler(void *arg) {
         }
         len += n;
 
-        size_t start = 0;
-        for (size_t i = 0; i < len; i++) {
-            if (buf[i] == '\n') {
-                buf[i] = '\0';
-                print_msg(buf + start);
-                start = i + 1;
+        size_t pos = 0;
+        while (pos < len) {
+            char *nl = memchr(buf + pos, '\n', len - pos); // tim '\n'
+            if (nl == NULL) {
+                break;
             }
+            *nl = '\0';
+            print_msg(buf + pos);
+            pos = (size_t)(nl - buf) + 1;
         }
 
-        memmove(buf, buf + start, len - start); // phan du doi ve dau buf
-        len -= start;
+        memmove(buf, buf + pos, len - pos);
+        len -= pos;
     }
 
     if (len > 0) {
