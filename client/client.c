@@ -94,6 +94,20 @@ const char *path_basename(const char *path) {
     return (slash != NULL) ? (slash + 1) : path;
 }
 
+int name_is_safe(const char *name) {
+    size_t len = strlen(name);
+    if (len == 0 || len > 255 || name[0] == '.') { // sai thu muc
+        return 0;
+    }
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (c == '/' || isspace(c) || c < 32 || c == 127) { // ky tu dieu khien
+            return 0;
+        }
+    }
+    return 1;
+}
+
 FILE *open_file_to_send(const char *path, off_t *size) {
     struct stat st;
     if (stat(path, &st) < 0) { // hoi nhan file in4: 0; -1
@@ -113,17 +127,9 @@ FILE *open_file_to_send(const char *path, off_t *size) {
         return NULL;
     }
 
-    const char *name = path_basename(path);
-    size_t name_len = strlen(name);
-    if (name_len == 0 || name_len > 255) {
-        printf(COLORED "*** Ten file khong hop le" RESET "\n");
+    if (!name_is_safe(path_basename(path))) {
+        printf(COLORED "*** Ten file khong hop le: toi da 255 ky tu, khong dau cach, khong bat dau bang '.'" RESET "\n");
         return NULL;
-    }
-    for (size_t i = 0; i < name_len; i++) {
-        if (isspace((unsigned char)name[i])) { // giao thuc tach truong bang dau cach
-            printf(COLORED "*** Ten file khong duoc chua dau cach, hay doi ten file" RESET "\n");
-            return NULL;
-        }
     }
 
     FILE *fp = fopen(path, "rb"); // read binary
@@ -202,6 +208,10 @@ void *send_msg_handler(void *arg) {
             printf(COLORED "*** Da gui \"%s\" (%lld byte)" RESET "\n", fname, (long long)size);
             continue;
         }
+        if (strncmp(message, "/file", 5) == 0 && (message[5] == ' ' || message[5] == '\0')) {
+            printf(COLORED "*** Dong bat dau bang /file danh rieng cho giao thuc, hay dung /sendfile <duong dan>" RESET "\n");
+            continue;
+        }
         snprintf(buffer, sizeof(buffer), "%s\n", message);
         if (send_all(sockfd, buffer, strlen(buffer)) < 0) {
             break;
@@ -245,6 +255,12 @@ int file_begin(recv_file_t *rf, const char *line) {
         return -1;
     }
     rf->left = (off_t)size;
+
+    if (!name_is_safe(rf->name)) {
+        printf(COLORED "*** Bo qua file co ten khong an toan tu %s" RESET "\n", rf->sender);
+        rf->out = NULL;
+        return 0;
+    }
 
     mkdir("downloads", 0755); // access role bat phan
     snprintf(rf->path, sizeof(rf->path), "downloads/%s", rf->name);
