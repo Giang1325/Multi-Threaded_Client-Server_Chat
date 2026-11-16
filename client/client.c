@@ -256,18 +256,36 @@ int file_begin(recv_file_t *rf, const char *line) {
 }
 
 void file_write(recv_file_t *rf, const char *data, size_t n) {
-    if (rf->out != NULL) {
-        fwrite(data, 1, n, rf->out);
+    if (rf->out != NULL && fwrite(data, 1, n, rf->out) != n) { // ghi thieu
+        printf(COLORED "*** Loi ghi \"%s\": %s (bo qua phan con lai)" RESET "\n", rf->path, strerror(errno));
+        fclose(rf->out);
+        remove(rf->path);
+        rf->out = NULL; // doc bo
     }
     rf->left -= (off_t)n;
 
     if (rf->left == 0 && rf->out != NULL) {
-        fclose(rf->out);
+        int rc = fclose(rf->out); // 0; =1
         rf->out = NULL;
+        if (rc != 0) {
+            printf(COLORED "*** Loi ghi \"%s\": %s" RESET "\n", rf->path, strerror(errno));
+            remove(rf->path);
+            return;
+        }
         char msg[LENGTH];
         snprintf(msg, sizeof(msg), "*** Nhan file \"%s\" tu %s -> %s", rf->name, rf->sender, rf->path);
         print_msg(msg);
     }
+}
+
+void file_abort(recv_file_t *rf) { // dut ket noi
+    if (rf->out != NULL) {
+        fclose(rf->out);
+        remove(rf->path);
+        rf->out = NULL;
+        printf(COLORED "*** File \"%s\" chua nhan du, da xoa" RESET "\n", rf->name);
+    }
+    rf->left = 0;
 }
 
 void *recv_msg_handler(void *arg) {
@@ -275,8 +293,9 @@ void *recv_msg_handler(void *arg) {
     char buf[LENGTH];
     size_t len = 0;   // so byte dang co trong buf
     recv_file_t rf = { .out = NULL, .left = 0 };
+    int broken = 0; // 1 = header fail
 
-    while (1) {
+    while (!broken) {
         if (len == sizeof(buf) - 1) {
             buf[len] = '\0';
             print_msg(buf);
@@ -310,7 +329,12 @@ void *recv_msg_handler(void *arg) {
             char *line = buf + pos;
             pos = (size_t)(nl - buf) + 1;
 
-            if (strncmp(line, "/file ", 6) == 0 && file_begin(&rf, line) == 0) {
+            if (strncmp(line, "/file ", 6) == 0) {
+                if (file_begin(&rf, line) < 0) {
+                    printf(COLORED "*** Header file khong hop le, ngat ket noi" RESET "\n");
+                    broken = 1;
+                    break;
+                }
                 continue;
             }
             print_msg(line);
@@ -320,7 +344,8 @@ void *recv_msg_handler(void *arg) {
         len -= pos;
     }
 
-    if (len > 0) {
+    file_abort(&rf);
+    if (!broken && len > 0) {
         buf[len] = '\0';
         print_msg(buf);
     }
