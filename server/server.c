@@ -332,7 +332,7 @@ int relay_file(client_t *cli, const char *header_line){
 		return 1;
 	}
     if(fsize_raw == 0){
-		sent_to(cli->sockfd, SYS_PREFIX "File rong, khong gui.\n");
+		send_to(cli->sockfd, SYS_PREFIX "File rong, khong gui.\n");
 		return 0;
 	}
 	if(fsize_raw > MAX_FILE_SZ){
