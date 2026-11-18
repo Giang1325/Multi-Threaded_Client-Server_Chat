@@ -35,6 +35,7 @@ Một server xử lý tuần tự chỉ phục vụ được một client tại 
 | Ngay sau khi kết nối | `<tên>\n` |
 | Mỗi lần chat | `<nội dung>\n` |
 | Xem ai đang online | `/list\n` |
+| Gửi file (tối đa 1 MB = 1048576 byte) | `/file <ten_file> <so_byte>\n` rồi đúng `<so_byte>` byte dữ liệu nhị phân ngay sau đó (không có `\n` kết thúc, vì dữ liệu file có thể chứa bất kỳ byte nào) |
 
 ### Server phát gì
 
@@ -47,8 +48,10 @@ Một server xử lý tuần tự chỉ phục vụ được một client tại 
 | Trùng tên | `*** Ten "<tên>" da co nguoi dung. Vui long chon ten khac.\n` |
 | Tên không hợp lệ | `*** Ten khong hop le. Ten dai 2-31 ky tu, khong chua dau cach.\n` |
 | Phòng đầy | `*** Phong da day, vui long thu lai sau.\n` |
+| Có người gửi file | `/file <ten_nguoi_gui> <ten_file> <so_byte>\n` rồi đúng `<so_byte>` byte dữ liệu nhị phân — gửi cho mọi người trong phòng trừ người gửi |
+| File vượt quá 1 MB | `*** File qua lon, toi da 1048576 byte.\n` — Server không đọc phần dữ liệu đó, huỷ ngay, không chuyển cho ai |
 
-**Dấu hiệu phân biệt:** mọi tin do Server sinh ra đều mở đầu bằng `*** `, nên Client chỉ cần so 4 ký tự đầu (`strncmp(buf, "*** ", 4)`) là biết đó không phải tin của người dùng. Tin của người dùng nếu bắt đầu bằng `*** ` sẽ bị Server lọc bỏ.
+**Dấu hiệu phân biệt:** mọi tin do Server sinh ra đều mở đầu bằng `*** `, nên Client chỉ cần so 4 ký tự đầu (`strncmp(buf, "*** ", 4)`) là biết đó không phải tin của người dùng. Tin của người dùng nếu bắt đầu bằng `*** ` sẽ bị Server lọc bỏ. Dòng `/file ...` là trường hợp riêng, không mang tiền tố `*** `: Client nhận diện bằng cách so khớp đúng 6 ký tự đầu `/file `, và sau khi đọc được dòng đó phải chuyển sang đọc tiếp đúng `<so_byte>` byte nhị phân — không được áp dụng cách đọc theo dòng (`\n`) cho phần dữ liệu này.
 
 Giao thức trên **khác** code của repo mẫu (mẫu gửi tên đúng 32 byte cố định, Client tự gắn tên, không có `/list` lẫn kiểm tra trùng tên). Phần cài đặt làm ở tuần 3.
 

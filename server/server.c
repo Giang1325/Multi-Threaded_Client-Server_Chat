@@ -11,19 +11,25 @@
 #include <sys/types.h>
 #include <signal.h>
 
-#define MAX_CLIENTS 100
+#define MAX_CLIENTS 300
 #define BUFFER_SZ 2048
 
 /* Giao thuc: xem muc "Giao thuc" trong README.md */
 #define SYS_PREFIX "*** "       /* moi tin do Server sinh ra deu mo dau bang day nay */
 #define NAME_MIN 2
 #define NAME_MAX 31             /* name[32] = 31 ky tu + '\0' */
-#define OUT_SZ 4096             /* du cho "ten: noi dung" va cho ca danh sach /list */
+#define OUT_SZ (MAX_CLIENTS * (NAME_MAX + 2))  /* du cho "ten: noi dung" va cho ca danh sach /list, voi MAX_CLIENTS = 300, NAME_MAX = 31 thi OUT_SZ = 9900 byte ~ 9.7 KB */
+
 
 /* Ma tra ve cua recv_line (so khong am = so ky tu doc duoc) */
 #define LINE_ERR    -1
 #define LINE_LONG   -2
 #define LINE_CLOSED -3
+
+/* Giao thuc gui file: /file <ten_file> <so_byte>\n roi du lieu nhi phan */
+#define MAX_FILE_SZ   (1024 * 1024)   /* 1 MB, theo README */
+#define FILE_NAME_MAX 255
+#define FILE_HDR_MAX  320             /* du cho "/file <ten:31> <file:255> <so:10>\n" */
 
 static _Atomic unsigned int cli_count = 0;
 static int uid = 10;
@@ -50,6 +56,28 @@ void send_to(int fd, const char *s){
 	if(write(fd, s, strlen(s)) < 0){
 		perror("ERROR: write to descriptor failed");
 	}
+}
+
+/* Ghi du len byte ra fd, lap lai neu write() ghi thieu (short write).
+   write() khong dam bao ghi het trong 1 lan goi; voi tin nhan vai chuc
+   byte thi hiem khi lo ra, nhung voi file toi 1 MB thi rat de thieu
+   vi bo dem gui cua he dieu hanh co gioi han.
+   Tra ve 0 neu ghi du, -1 neu loi. */
+int write_all(int fd, const void *data, size_t len){
+	size_t sent = 0;
+
+	while(sent < len){
+		ssize_t w = write(fd, (const char*)data + sent, len - sent);
+
+		if(w < 0){
+			if(errno == EINTR){
+				continue;
+			}
+			return -1;
+		}
+		sent += (size_t)w;
+	}
+	return 0;
 }
 
 /* Doc mot dong tu socket, doc den khi gap '\n'.
@@ -100,6 +128,29 @@ int recv_line(int fd, char *buf, size_t size){
 		return LINE_ERR;
 	}
 	return LINE_LONG;
+}
+
+/* Doc dung n byte vao buf, khong dung lai o '\n' (dung cho du lieu nhi phan
+   nhu file: co the chua bat ky byte nao, ke ca '\0' va '\n'). Khac
+   recv_line o cho khong co khai niem "mot dong". Khong lay khoa.
+   Tra ve: 0  doc du n byte
+           LINE_ERR     loi recv
+           LINE_CLOSED  dau kia dong ket noi giua chung */
+int recv_exact(int fd, void *buf, size_t n){
+	size_t got = 0;
+
+	while(got < n){
+		ssize_t r = recv(fd, (char*)buf + got, n - got, 0);
+
+		if(r == 0){
+			return LINE_CLOSED;
+		}
+		if(r < 0){
+			return LINE_ERR;
+		}
+		got += (size_t)r;
+	}
+	return 0;
 }
 
 /* Ten hop le: dai NAME_MIN..NAME_MAX ky tu, khong chua dau cach.
@@ -213,8 +264,13 @@ void list_online(char *buf, size_t size){
 	}
 }
 
-/* Send message to all clients except sender */
-void send_message(char *s, int uid){
+/* Phat du lieu nhi phan cho tat ca client tru nguoi gui.
+   LAY KHOA clients_mutex va giu khoa SUOT qua trinh ghi — quan trong voi
+   /file: header va noi dung file nam trong CUNG MOT buffer, ghi trong MOT
+   lan giu khoa duy nhat, de tin cua luong khac khong the xen vao giua
+   (neu goi rieng cho header va payload, giua hai lan do mot luong khac
+   co the chen mot tin nhan vao, pha vo khung giao thuc cua nguoi nhan). */
+void send_data(const void *data, size_t len, int uid){
 	pthread_mutex_lock(&clients_mutex);
 
 	for(int i=0; i<MAX_CLIENTS; ++i){
@@ -222,7 +278,7 @@ void send_message(char *s, int uid){
 			if(clients[i]->uid != uid){
 				/* continue chu khong break: mot client loi khong duoc lam
 				   nhung nguoi xep sau trong mang mat tin */
-				if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+				if(write_all(clients[i]->sockfd, data, len) < 0){
 					perror("ERROR: write to descriptor failed");
 					continue;
 				}
@@ -231,6 +287,92 @@ void send_message(char *s, int uid){
 	}
 
 	pthread_mutex_unlock(&clients_mutex);
+}
+
+/* Send message to all clients except sender */
+void send_message(char *s, int uid){
+	send_data(s, strlen(s), uid);
+}
+
+/* Doc va vut bo dung n byte tu socket (dung khi tu choi nhan file nhung
+   van phai giu dung khung giao thuc, khong de phan con lai lam lech
+   lan doc tiep theo). Khong lay khoa. */
+void drain_bytes(int fd, unsigned long long n){
+	char trash[4096];
+
+	while(n > 0){
+		size_t chunk = n < sizeof(trash) ? (size_t)n : sizeof(trash);
+		ssize_t r = recv(fd, trash, chunk, 0);
+
+		if(r <= 0){
+			break;      /* dut giua chung: vong lap chinh cua handle_client se bat */
+		}
+		n -= (unsigned long long)r;
+	}
+}
+
+/* Nhan va chuyen tiep file: dong dau la "/file <ten_file> <so_byte>",
+   roi dung so_byte byte du lieu nhi phan ngay sau do (xem muc Giao thuc
+   trong README.md). Goi tu nhanh /file trong vong lap chinh cua
+   handle_client.
+   Tra ve 1 neu can dong ket noi (cu phap /file sai, khong the dam bao
+   dong bo lai duoc voi socket), 0 neu van tiep tuc chat binh thuong. */
+int relay_file(client_t *cli, const char *header_line){
+	char fname[FILE_NAME_MAX + 1];
+	unsigned long long fsize_raw;
+
+	/* Gioi han 10 chu so (~9999999999): neu khong, so qua lon se tran
+	   kieu unsigned long long, sscanf tu dong kep ve ULLONG_MAX ma
+	   KHONG bao loi, khien drain_bytes cho doc gan vo han byte. */
+	if(sscanf(header_line, "/file %255s %10llu", fname, &fsize_raw) != 2){
+		/* Khong parse duoc nghia la khong biet chinh xac con bao nhieu
+		   byte trong socket -> khong the doc bo de dong bo lai. Dong
+		   luon ket noi thay vi tiep tuc doc sai khung. */
+		send_to(cli->sockfd, SYS_PREFIX "Cu phap /file sai. Dong ket noi.\n");
+		return 1;
+	}
+    if(fsize_raw == 0){
+		send_to(cli->sockfd, SYS_PREFIX "File rong, khong gui.\n");
+		return 0;
+	}
+	if(fsize_raw > MAX_FILE_SZ){
+		char msg[64];
+
+		drain_bytes(cli->sockfd, fsize_raw);
+		snprintf(msg, sizeof(msg), SYS_PREFIX "File qua lon, toi da %d byte.\n", MAX_FILE_SZ);
+		send_to(cli->sockfd, msg);
+		return 0;
+	}
+
+	size_t fsize = (size_t)fsize_raw;
+	char *buf = malloc(FILE_HDR_MAX + fsize);
+
+	if(!buf){
+		drain_bytes(cli->sockfd, fsize_raw);
+		send_to(cli->sockfd, SYS_PREFIX "Server het bo nho, khong nhan duoc file.\n");
+		return 0;
+	}
+
+	int hdr_len = snprintf(buf, FILE_HDR_MAX, "/file %s %s %zu\n",
+	                        cli->name, fname, fsize);
+
+	if(hdr_len < 0 || (size_t)hdr_len >= FILE_HDR_MAX){
+		/* khong nen xay ra voi gioi han NAME_MAX/FILE_NAME_MAX hien tai,
+		   nhung kiem tra cho chac truoc khi ghi tiep vao buf */
+		free(buf);
+		drain_bytes(cli->sockfd, fsize_raw);
+		send_to(cli->sockfd, SYS_PREFIX "Loi noi bo, khong nhan duoc file.\n");
+		return 0;
+	}
+
+	if(recv_exact(cli->sockfd, buf + hdr_len, fsize) != 0){
+		free(buf);
+		return 0;   /* dut giua chung: vong lap chinh se bat o lan recv_line ke tiep */
+	}
+
+	send_data(buf, (size_t)hdr_len + fsize, cli->uid);
+	free(buf);
+	return 0;
 }
 
 /* Handle all communication with the client */
@@ -298,6 +440,10 @@ void *handle_client(void *arg){
 		} else if(strncmp(in, SYS_PREFIX, strlen(SYS_PREFIX)) == 0){
 			/* Loc tin mao danh tin he thong (README: "se bi Server loc bo") */
 			printf("Da loc tin gia tin he thong tu %s: %s\n", cli->name, in);
+		} else if(strncmp(in, "/file ", 6) == 0){
+			if(relay_file(cli, in)){
+				leave_flag = 1;
+			}
 		} else {
 			/* SERVER gan ten, khong phai client, de khong ai mao danh nguoi khac */
 			snprintf(out, sizeof(out), "%s: %s\n", cli->name, in);
@@ -357,8 +503,9 @@ int main(int argc, char **argv){
     return EXIT_FAILURE;
   }
 
-  /* Listen */
-  if (listen(listenfd, 10) < 0) {
+  /* Listen. SOMAXCONN thay cho so 10 tu doan: de he dieu hanh tu quyet
+     dinh muc hang doi hop ly, thay vi tu doan mot con so co dinh. */
+  if (listen(listenfd, SOMAXCONN) < 0) {
     perror("ERROR: Socket listening failed");
     return EXIT_FAILURE;
 	}
@@ -368,6 +515,10 @@ int main(int argc, char **argv){
 	while(1){
 		socklen_t clilen = sizeof(cli_addr);
 		connfd = accept(listenfd, (struct sockaddr*)&cli_addr, &clilen);
+		if(connfd < 0){
+			perror("ERROR: accept failed");
+			continue;
+		}
 
 		/* Khong con chot chan o day: chot cu doc cli_count NGOAI khoa trong
 		   khi clients[] lai duoc clients_mutex bao ve, va dung == nen neu
@@ -377,6 +528,11 @@ int main(int argc, char **argv){
 
 		/* Client settings */
 		client_t *cli = (client_t *)malloc(sizeof(client_t));
+		if(!cli){
+			perror("ERROR: malloc client_t failed");
+			close(connfd);
+			continue;
+		}
 		cli->address = cli_addr;
 		cli->sockfd = connfd;
 		cli->uid = uid++;
@@ -384,7 +540,15 @@ int main(int argc, char **argv){
 
 		/* Chua them vao danh sach o day: phai doc ten truoc da, roi
 		   handle_client moi goi client_add_if_name_free de chan trung ten. */
-		pthread_create(&tid, NULL, &handle_client, (void*)cli);
+		int rc = pthread_create(&tid, NULL, &handle_client, (void*)cli);
+		if(rc != 0){
+			/* pthread_create tra ve ma loi truc tiep, khong qua errno,
+			   nen dung strerror(rc) chu khong phai perror. */
+			fprintf(stderr, "ERROR: pthread_create failed: %s\n", strerror(rc));
+			close(connfd);
+			free(cli);
+			continue;
+		}
 	}
 
 	return EXIT_SUCCESS;
