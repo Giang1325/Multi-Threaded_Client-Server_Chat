@@ -331,7 +331,10 @@ int relay_file(client_t *cli, const char *header_line){
 		send_to(cli->sockfd, SYS_PREFIX "Cu phap /file sai. Dong ket noi.\n");
 		return 1;
 	}
-    
+    if(fsize_raw == 0){
+		sent_to(cli->sockfd, SYS_PREFIX "File rong, khong gui.\n");
+		return 0;
+	}
 	if(fsize_raw > MAX_FILE_SZ){
 		char msg[64];
 
