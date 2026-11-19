@@ -11,8 +11,12 @@
 #include <ctype.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #define LENGTH 2048
+#define FILE_MAX 1048576
+#define COLORED "\033[33m"
+#define RESET  "\033[0m"
 
 // Global variables
 volatile sig_atomic_t flag = 0; // 1 = nguoi dung chu dong thoat (/quit, Ctrl+D); 0 ma mat ket noi = server dong
@@ -69,6 +73,102 @@ void catch_ctrl_c_and_exit(int sig) {
     _exit(EXIT_SUCCESS);
 }
 
+int send_all(int fd, const void *buf, size_t len) {
+    const char *p = buf; // chay tren tung byte can gui
+    while (len > 0) {
+        ssize_t n = send(fd, p, len, MSG_NOSIGNAL); // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+        if (n < 0) {
+            if (errno == EINTR) { // bi tin hieu cat ngang truoc khi gui duoc gi: gui lai
+                continue;
+            }
+            return -1;
+        }
+        p += n;
+        len -= (size_t)n;
+    }
+    return 0;
+}
+
+const char *path_basename(const char *path) {
+    const char *slash = strrchr(path, '/'); // '/' cuoi cung
+    return (slash != NULL) ? (slash + 1) : path;
+}
+
+int name_is_safe(const char *name) {
+    size_t len = strlen(name);
+    if (len == 0 || len > 255 || name[0] == '.') { // sai thu muc
+        return 0;
+    }
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (c == '/' || isspace(c) || c < 32 || c == 127) { // ky tu dieu khien
+            return 0;
+        }
+    }
+    return 1;
+}
+
+FILE *open_file_to_send(const char *path, off_t *size) {
+    struct stat st;
+    if (stat(path, &st) < 0) { // hoi nhan file in4: 0; -1
+        printf(COLORED "*** Khong tim thay file \"%s\": %s" RESET "\n", path, strerror(errno));
+        return NULL;
+    }
+    if (!S_ISREG(st.st_mode)) { // file thuong ?
+        printf(COLORED "*** \"%s\" khong phai file thuong" RESET "\n", path);
+        return NULL;
+    }
+    if (st.st_size == 0) {
+        printf(COLORED "*** File rong, khong gui" RESET "\n");
+        return NULL;
+    }
+    if (st.st_size > FILE_MAX) {
+        printf(COLORED "*** File qua lon (%lld byte), toi da %d byte" RESET "\n", (long long)st.st_size, FILE_MAX);
+        return NULL;
+    }
+
+    if (!name_is_safe(path_basename(path))) {
+        printf(COLORED "*** Ten file khong hop le: toi da 255 ky tu, khong dau cach, khong bat dau bang '.'" RESET "\n");
+        return NULL;
+    }
+
+    FILE *fp = fopen(path, "rb"); // read binary
+    if (fp == NULL) {
+        printf(COLORED "*** Khong mo duoc file \"%s\": %s" RESET "\n", path, strerror(errno));
+        return NULL;
+    }
+    *size = st.st_size;
+    return fp;
+}
+
+int send_file(int fd, FILE *fp, const char *name, off_t size) {
+    char header[LENGTH];
+    snprintf(header, sizeof(header), "/file %s %lld\n", name, (long long)size);
+    if (send_all(fd, header, strlen(header)) < 0) {
+        fclose(fp);
+        return -1;
+    }
+
+    char chunk[4096]; // tach tin
+    off_t remaining = size;
+    while (remaining > 0) {
+        size_t want = (remaining < (off_t)sizeof(chunk)) ? (size_t)remaining : sizeof(chunk);
+        size_t got = fread(chunk, 1, want, fp);
+        if (got == 0) {
+            printf(COLORED "*** Loi doc file giua chung, ngat ket noi" RESET "\n");
+            fclose(fp); // sai loi hua
+            return -1;
+        }
+        if (send_all(fd, chunk, got) < 0) {
+            fclose(fp);
+            return -1;
+        }
+        remaining -= (off_t)got;
+    }
+    fclose(fp);
+    return 0;
+}
+
 void *send_msg_handler(void *arg) {
     (void)arg; // co y khong dung
     char message[LENGTH];
@@ -87,8 +187,33 @@ void *send_msg_handler(void *arg) {
         if (message[0] == '\0') {
             continue;
         }
+        if (strncmp(message, "/sendfile", 9) == 0 && (message[9] == ' ' || message[9] == '\0')) {
+            const char *path = message + 9;
+            while (*path == ' ') {
+                path++;
+            }
+            if (*path == '\0') {
+                printf(COLORED "*** Cach gan file: /sendfile <duong dan file>" RESET "\n");
+                continue;
+            }
+            off_t size;
+            FILE *fp = open_file_to_send(path, &size);
+            if (fp == NULL) {
+                continue;
+            }
+            const char *fname = path_basename(path);
+            if (send_file(sockfd, fp, fname, size) < 0) {
+                break;
+            }
+            printf(COLORED "*** Da gui \"%s\" (%lld byte)" RESET "\n", fname, (long long)size);
+            continue;
+        }
+        if (strncmp(message, "/file", 5) == 0 && (message[5] == ' ' || message[5] == '\0')) {
+            printf(COLORED "*** Dong bat dau bang /file danh rieng cho giao thuc, hay dung /sendfile <duong dan>" RESET "\n");
+            continue;
+        }
         snprintf(buffer, sizeof(buffer), "%s\n", message);
-        if (send(sockfd, buffer, strlen(buffer), MSG_NOSIGNAL) < 0) { // MSG_NOSIGNAL: server da dong thi send tra ve -1 thay vi bi SIGPIPE giet
+        if (send_all(sockfd, buffer, strlen(buffer)) < 0) {
             break;
         }
     }
@@ -108,7 +233,7 @@ void print_msg(const char *line) {
     char hhmm[6];
     current_hhmm(hhmm, sizeof(hhmm));
     if (strncmp(line, "*** ", 4) == 0) { // tin he thong ?
-        printf("[%s] \033[33m%s\033[0m\n", hhmm, line); // gio mau thuong, noi dung mau vang
+        printf("[%s] " COLORED "%s" RESET "\n", hhmm, line); // gio mau thuong, noi dung mau vang
     }
     else {
         printf("[%s] %s\n", hhmm, line);
@@ -116,12 +241,77 @@ void print_msg(const char *line) {
     str_overwrite_stdout();
 }
 
+typedef struct {
+    FILE *out;
+    off_t left;
+    char sender[32];
+    char name[256];
+    char path[300]; // "downloads/<ten file>"
+} recv_file_t;
+
+int file_begin(recv_file_t *rf, const char *line) {
+    long long size;
+    if (sscanf(line, "/file %31s %255s %lld", rf->sender, rf->name, &size) != 3 || size <= 0 || size > FILE_MAX) {
+        return -1;
+    }
+    rf->left = (off_t)size;
+
+    if (!name_is_safe(rf->name)) {
+        printf(COLORED "*** Bo qua file co ten khong an toan tu %s" RESET "\n", rf->sender);
+        rf->out = NULL;
+        return 0;
+    }
+
+    mkdir("downloads", 0755); // access role bat phan
+    snprintf(rf->path, sizeof(rf->path), "downloads/%s", rf->name);
+    rf->out = fopen(rf->path, "wb"); // "wb": ghi nhi phan, ghi de neu trung ten
+    if (rf->out == NULL) {
+        printf(COLORED "*** Khong luu duoc \"%s\": %s (bo qua file nay)" RESET "\n", rf->path, strerror(errno));
+    }
+    return 0;
+}
+
+void file_write(recv_file_t *rf, const char *data, size_t n) {
+    if (rf->out != NULL && fwrite(data, 1, n, rf->out) != n) { // ghi thieu
+        printf(COLORED "*** Loi ghi \"%s\": %s (bo qua phan con lai)" RESET "\n", rf->path, strerror(errno));
+        fclose(rf->out);
+        remove(rf->path);
+        rf->out = NULL; // doc bo
+    }
+    rf->left -= (off_t)n;
+
+    if (rf->left == 0 && rf->out != NULL) {
+        int rc = fclose(rf->out); // 0; =1
+        rf->out = NULL;
+        if (rc != 0) {
+            printf(COLORED "*** Loi ghi \"%s\": %s" RESET "\n", rf->path, strerror(errno));
+            remove(rf->path);
+            return;
+        }
+        char msg[LENGTH];
+        snprintf(msg, sizeof(msg), "*** Nhan file \"%s\" tu %s -> %s", rf->name, rf->sender, rf->path);
+        print_msg(msg);
+    }
+}
+
+void file_abort(recv_file_t *rf) { // dut ket noi
+    if (rf->out != NULL) {
+        fclose(rf->out);
+        remove(rf->path);
+        rf->out = NULL;
+        printf(COLORED "*** File \"%s\" chua nhan du, da xoa" RESET "\n", rf->name);
+    }
+    rf->left = 0;
+}
+
 void *recv_msg_handler(void *arg) {
     (void)arg;
     char buf[LENGTH];
     size_t len = 0;   // so byte dang co trong buf
+    recv_file_t rf = { .out = NULL, .left = 0 };
+    int broken = 0; // 1 = header fail
 
-    while (1) {
+    while (!broken) {
         if (len == sizeof(buf) - 1) {
             buf[len] = '\0';
             print_msg(buf);
@@ -135,20 +325,43 @@ void *recv_msg_handler(void *arg) {
         }
         len += n;
 
-        size_t start = 0;
-        for (size_t i = 0; i < len; i++) {
-            if (buf[i] == '\n') {
-                buf[i] = '\0';
-                print_msg(buf + start);
-                start = i + 1;
+        size_t pos = 0;
+        while (pos < len) {
+            if (rf.left > 0) { // ? file mode
+                size_t take = len - pos;
+                if ((off_t)take > rf.left) {
+                    take = (size_t)rf.left;
+                }
+                file_write(&rf, buf + pos, take);
+                pos += take;
+                continue;
             }
+
+            char *nl = memchr(buf + pos, '\n', len - pos); // tim '\n'
+            if (nl == NULL) {
+                break;
+            }
+            *nl = '\0';
+            char *line = buf + pos;
+            pos = (size_t)(nl - buf) + 1;
+
+            if (strncmp(line, "/file ", 6) == 0) {
+                if (file_begin(&rf, line) < 0) {
+                    printf(COLORED "*** Header file khong hop le, ngat ket noi" RESET "\n");
+                    broken = 1;
+                    break;
+                }
+                continue;
+            }
+            print_msg(line);
         }
 
-        memmove(buf, buf + start, len - start); // phan du doi ve dau buf
-        len -= start;
+        memmove(buf, buf + pos, len - pos);
+        len -= pos;
     }
 
-    if (len > 0) {
+    file_abort(&rf);
+    if (!broken && len > 0) {
         buf[len] = '\0';
         print_msg(buf);
     }
@@ -208,7 +421,7 @@ int main(int argc, char **argv){
     // Send name
     char name_line[sizeof(name) + 1];
     snprintf(name_line, sizeof(name_line), "%s\n", name);
-    if (send(sockfd, name_line, strlen(name_line), MSG_NOSIGNAL) < 0) { // send nhan -1 neu loi chu khong crash
+    if (send_all(sockfd, name_line, strlen(name_line)) < 0) {
         perror("ERROR: send name");
         close(sockfd);
         return EXIT_FAILURE;
