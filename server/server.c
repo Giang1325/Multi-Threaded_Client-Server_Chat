@@ -31,7 +31,6 @@
 #define FILE_NAME_MAX 255
 #define FILE_HDR_MAX  320             /* du cho "/file <ten:31> <file:255> <so:10>\n" */
 
-static _Atomic unsigned int cli_count = 0;
 static int uid = 10;
 
 /* Client structure */
@@ -377,7 +376,6 @@ void *handle_client(void *arg){
 	int leave_flag = 0;
 	int n;
 
-	cli_count++;
 	client_t *cli = (client_t *)arg;
 
 	/* Doc ten theo dong, theo giao thuc trong README: Client gui "<ten>\n".
@@ -451,7 +449,6 @@ void *handle_client(void *arg){
 	close(cli->sockfd);
   queue_remove(cli->uid);
   free(cli);
-  cli_count--;
   pthread_detach(pthread_self());
 
 	return NULL;
@@ -515,10 +512,8 @@ int main(int argc, char **argv){
 			continue;
 		}
 
-		/* Khong con chot chan o day: chot cu doc cli_count NGOAI khoa trong
-		   khi clients[] lai duoc clients_mutex bao ve, va dung == nen neu
-		   lo vuot qua mot lan la mat tac dung mai mai. Chot that nam trong
-		   client_add_if_name_free (dem o trong trong luc giu khoa), tra ve
+		/* Khong chot chan o day: chot phong day nam trong
+		   client_add_if_name_free (kiem tra trong luc giu khoa), tra ve
 		   -2 khi day; handle_client se gui cau "Phong da day" cho client. */
 
 		/* Client settings */
