@@ -46,18 +46,6 @@ client_t *clients[MAX_CLIENTS];
 
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void str_overwrite_stdout() {
-    printf("\r%s", "> ");
-    fflush(stdout);
-}
-
-/* Gui mot chuoi cho dung mot client. Khong lay khoa. */
-void send_to(int fd, const char *s){
-	if(write(fd, s, strlen(s)) < 0){
-		perror("ERROR: write to descriptor failed");
-	}
-}
-
 /* Ghi du len byte ra fd, lap lai neu write() ghi thieu (short write).
    write() khong dam bao ghi het trong 1 lan goi; voi tin nhan vai chuc
    byte thi hiem khi lo ra, nhung voi file toi 1 MB thi rat de thieu
@@ -78,6 +66,13 @@ int write_all(int fd, const void *data, size_t len){
 		sent += (size_t)w;
 	}
 	return 0;
+}
+
+/* Gui mot chuoi cho dung mot client. Khong lay khoa. */
+void send_to(int fd, const char *s){
+	if(write_all(fd, s, strlen(s)) < 0){
+		perror("ERROR: write to descriptor failed");
+	}
 }
 
 /* Doc mot dong tu socket, doc den khi gap '\n'.
