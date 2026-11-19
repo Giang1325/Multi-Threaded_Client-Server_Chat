@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -u                      # dung bien chua gan gia tri thi bao loi, tranh go nham ten bien
+export LC_ALL=C              # so thap phan luon dung dau cham (may tieng Viet dung dau phay -> vo cot CSV)
 
 # ----------------------------- Tham so kich ban -----------------------------
 MSG_INTERVAL=2              # giay giua 2 tin nhan cua 1 bot
