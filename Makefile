@@ -21,8 +21,16 @@ BIN     = bin
 
 all: $(BIN)/server $(BIN)/client
 
-$(BIN)/server: server/server.c | $(BIN)
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+SERVER_SRCS = server/io.c server/registry.c server/broadcast.c \
+              server/file_transfer.c server/client_handler.c server/main.c
+SERVER_OBJS = $(SERVER_SRCS:.c=.o)
+
+$(BIN)/server: $(SERVER_OBJS) | $(BIN)
+	$(CC) $(SERVER_OBJS) -o $@ $(LDFLAGS)
+
+server/%.o: server/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
 
 $(BIN)/client: client/client.c | $(BIN)
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
